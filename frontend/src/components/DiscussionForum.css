@@ -1,0 +1,217 @@
+/* frontend/src/components/DiscussionForum.css */
+
+/* General forum styles */
+.topic-list-view, .topic-detail {
+    margin-top: 20px;
+}
+
+/* New Topic Form */
+.new-topic-form {
+    background-color: #f9f9f9;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    margin-bottom: 30px;
+}
+
+.new-topic-form h3 {
+    color: #2c3e50;
+    margin-top: 0;
+    margin-bottom: 20px;
+}
+
+.new-topic-form .form-group {
+    margin-bottom: 15px;
+}
+
+.new-topic-form label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+    color: #555;
+}
+
+.new-topic-form input[type="text"] {
+    width: calc(100% - 22px);
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    font-size: 16px;
+    color: #333;
+}
+
+.new-topic-form button {
+    background-color: #3498db; /* Blue button */
+    color: white;
+    padding: 10px 15px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+    margin-top: 10px;
+}
+
+.new-topic-form button:hover:not(:disabled) {
+    background-color: #2980b9;
+}
+
+.new-topic-form button:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+}
+
+/* Topic List Grid */
+.topics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 20px;
+}
+
+.topic-card {
+    background-color: #ffffff;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    cursor: pointer;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    height: 100%; /* Ensure cards are same height */
+}
+
+.topic-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+}
+
+.topic-card h4 {
+    margin-top: 0;
+    color: #3498db;
+    margin-bottom: 10px;
+    font-size: 1.2em;
+}
+
+.topic-card .topic-meta {
+    font-size: 0.9em;
+    color: #666;
+    margin-bottom: 5px;
+}
+
+.topic-tag {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.8em;
+    margin-right: 5px;
+    margin-top: 8px;
+    font-weight: bold;
+}
+
+.skill-tag {
+    background-color: #d4edda; /* Light green */
+    color: #155724; /* Dark green */
+}
+
+.company-tag {
+    background-color: #cfe2ff; /* Light blue */
+    color: #053c7a; /* Dark blue */
+}
+
+.topic-card .view-topic-button {
+    background-color: #28a745; /* Green button */
+    margin-top: 15px;
+    padding: 8px 12px;
+    font-size: 0.9em;
+    align-self: flex-start; /* Align button to start */
+}
+
+/* Topic Detail View */
+.topic-detail {
+    background-color: #f9f9f9;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.topic-detail h3 {
+    color: #2c3e50;
+    margin-top: 0;
+    margin-bottom: 10px;
+}
+
+.topic-detail h4 {
+    color: #3498db;
+    margin-top: 25px;
+    margin-bottom: 15px;
+}
+
+.topic-detail .posts-list {
+    border-top: 1px solid #eee;
+    padding-top: 15px;
+}
+
+.topic-detail .post-item {
+    background-color: #eaf7f7;
+    border: 1px solid #cceeee;
+    border-radius: 5px;
+    padding: 15px;
+    margin-bottom: 10px;
+}
+
+.topic-detail .post-content {
+    margin-top: 0;
+    margin-bottom: 5px;
+    line-height: 1.5;
+}
+
+.topic-detail .post-meta {
+    font-size: 0.85em;
+    color: #777;
+    text-align: right;
+    margin-top: 5px;
+}
+
+.topic-detail .new-post-form {
+    border-top: 1px solid #eee;
+    padding-top: 20px;
+    margin-top: 20px;
+}
+
+.topic-detail textarea {
+    width: calc(100% - 22px);
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    font-size: 16px;
+    min-height: 80px;
+    resize: vertical;
+    margin-bottom: 10px;
+    color: #333;
+}
+
+.topic-detail button {
+    background-color: #007bff; /* Blue button */
+    padding: 10px 15px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    color: white;
+    font-size: 16px;
+}
+
+.topic-detail button.back-button {
+    background-color: #6c757d; /* Grey back button */
+    margin-bottom: 20px;
+}
+
+.topic-detail button.back-button:hover {
+    background-color: #5a6268;
+}
+
+.error-message {
+    font-weight: bold;
+    color: #dc3545;
+    margin-top: 10px;
+}

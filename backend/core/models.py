@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone # Import for default timestamp
 
 #
 # CompanyDrive model to store information about company drives
@@ -64,3 +65,45 @@ class MockInterviewQuestion(models.Model):
 
     def __str__(self):
         return f"Mock Q for {self.company.company_name} ({self.role}) - {self.difficulty_level}"
+
+
+class DiscussionTopic(models.Model):
+    """
+    Represents a main discussion thread or topic in the forum.
+    """
+    title = models.CharField(max_length=255)
+    # Using CharField for author for hackathon simplicity (no full user auth required)
+    # In a real app, this would be a ForeignKey to Django's User model
+    author_name = models.CharField(max_length=100, default='Anonymous')
+    created_at = models.DateTimeField(default=timezone.now)
+    # Optional: Link to a skill or company for structured discussions
+    related_skill = models.ForeignKey(
+        'Skill', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='discussion_topics'
+    )
+    related_company = models.ForeignKey(
+        'CompanyDrive', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='discussion_topics'
+    )
+
+    def __str__(self):
+        return self.title
+
+    class Meta:
+        ordering = ['-created_at'] # Order by newest topics first
+
+class DiscussionPost(models.Model):
+    """
+    Represents a reply or comment within a discussion topic.
+    """
+    topic = models.ForeignKey(DiscussionTopic, on_delete=models.CASCADE, related_name='posts')
+    content = models.TextField()
+    # Using CharField for author for hackathon simplicity
+    author_name = models.CharField(max_length=100, default='Anonymous')
+    created_at = models.DateTimeField(default=timezone.now)
+
+    def __str__(self):
+        return f"Post by {self.author_name} on {self.topic.title[:30]}..."
+
+    class Meta:
+        ordering = ['created_at'] # Order posts within a topic from oldest to newest

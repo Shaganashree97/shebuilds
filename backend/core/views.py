@@ -1,7 +1,7 @@
 from rest_framework import viewsets
 from rest_framework import filters
-from .models import Skill, LearningTopic, LearningResource, CompanyDrive, MockInterviewQuestion
-from .serializers import CompanyDriveSerializer, PrepPlanInputSerializer, SkillSerializer, LearningTopicSerializer, LearningResourceSerializer, MockInterviewQuestionSerializer
+from .models import Skill, LearningTopic, LearningResource, CompanyDrive, MockInterviewQuestion, DiscussionTopic, DiscussionPost 
+from .serializers import CompanyDriveSerializer, PrepPlanInputSerializer, LearningResourceSerializer, MockInterviewQuestionSerializer, DiscussionTopicSerializer, DiscussionTopicListSerializer, DiscussionPostSerializer
 
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -279,3 +279,43 @@ class ResumeCheckerAPIView(APIView):
         }
 
         return Response(response_data, status=status.HTTP_200_OK)
+
+
+# --- Collaborative Learning ---
+
+class DiscussionTopicViewSet(viewsets.ModelViewSet):
+    """
+    API endpoint that allows discussion topics to be viewed or edited.
+    Supports listing all topics, creating new topics, and retrieving a single topic with its posts.
+    """
+    queryset = DiscussionTopic.objects.all()
+    # Use different serializers for list and detail views for performance
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return DiscussionTopicListSerializer # Use simpler serializer for list view
+        return DiscussionTopicSerializer # Use detailed serializer for retrieve, create, update
+
+    filter_backends = [filters.OrderingFilter, filters.SearchFilter]
+    ordering_fields = ['created_at', 'title']
+    search_fields = ['title', 'author_name', 'related_skill__name', 'related_company__company_name'] # Search across relevant fields
+
+
+class DiscussionPostViewSet(viewsets.ModelViewSet):
+    """
+    API endpoint that allows discussion posts (replies) to be viewed or edited.
+    Posts are nested under topics.
+    """
+    serializer_class = DiscussionPostSerializer
+
+    def get_queryset(self):
+        # Retrieve posts only for the specific topic provided in the URL
+        topic_id = self.kwargs.get('topic_pk') # Get topic_pk from URL
+        if topic_id:
+            return DiscussionPost.objects.filter(topic_id=topic_id).order_by('created_at')
+        return DiscussionPost.objects.all().order_by('created_at') # Fallback if no topic_pk (shouldn't happen with nested routing)
+
+    def perform_create(self, serializer):
+        # Automatically link the post to its parent topic
+        topic_id = self.kwargs.get('topic_pk')
+        topic = get_object_or_404(DiscussionTopic, pk=topic_id)
+        serializer.save(topic=topic) # Save the post with the correct topic
