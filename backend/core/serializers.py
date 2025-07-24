@@ -29,7 +29,19 @@ class LearningTopicSerializer(serializers.ModelSerializer):
 # This serializer is for the input to the plan generation API
 class PrepPlanInputSerializer(serializers.Serializer):
     academic_course_details = serializers.CharField(max_length=500)
-    preferred_role = serializers.CharField(max_length=100)
+    preferred_role = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    job_description = serializers.CharField(max_length=2000, required=False, allow_blank=True)
+    
+    def validate(self, data):
+        preferred_role = data.get('preferred_role', '').strip()
+        job_description = data.get('job_description', '').strip()
+        
+        if not preferred_role and not job_description:
+            raise serializers.ValidationError(
+                "Either 'preferred_role' or 'job_description' must be provided."
+            )
+        
+        return data
 
 # This serializer is for the structured output of the plan
 class PrepPlanOutputSerializer(serializers.Serializer):
@@ -45,6 +57,35 @@ class MockInterviewQuestionSerializer(serializers.ModelSerializer):
     class Meta:
         model = MockInterviewQuestion
         fields = ['id', 'question_text', 'difficulty_level', 'role'] # Expose relevant fields for frontend
+
+class MockInterviewInputSerializer(serializers.Serializer):
+    company_name = serializers.CharField(max_length=200)
+    job_description = serializers.CharField(max_length=5000)
+    num_questions = serializers.IntegerField(min_value=1, max_value=10, default=5)
+
+class MockInterviewResponseSerializer(serializers.Serializer):
+    question_text = serializers.CharField()
+    difficulty_level = serializers.CharField()
+    audio_url = serializers.URLField(required=False, allow_null=True)
+    audio_data = serializers.CharField(required=False, allow_null=True)  # Base64 encoded audio
+
+class AnswerEvaluationInputSerializer(serializers.Serializer):
+    company_name = serializers.CharField(max_length=200)
+    job_description = serializers.CharField(max_length=5000)
+    question_answers = serializers.ListField(
+        child=serializers.DictField(
+            child=serializers.CharField()
+        )
+    )
+
+class AnswerFeedbackSerializer(serializers.Serializer):
+    question_text = serializers.CharField()
+    user_answer = serializers.CharField()
+    score = serializers.IntegerField()  # 1-10 rating
+    strengths = serializers.ListField(child=serializers.CharField())
+    improvements = serializers.ListField(child=serializers.CharField())
+    suggestions = serializers.ListField(child=serializers.CharField())
+    overall_comment = serializers.CharField()
 
 # --- Collaborative Learning ---
 

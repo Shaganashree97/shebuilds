@@ -51,8 +51,8 @@ const ResumeBuilder = () => {
 
     return (
         <div className="container">
-            <h2>ATS Friendly Resume Checker</h2>
-            <p>Upload your resume (PDF/DOCX/TXT) and paste a job description to get keyword matching analysis and suggestions for improvement.</p>
+            <h2>🎯 AI-Powered Resume Analyzer</h2>
+            <p>Upload your resume and provide a job description to get comprehensive AI-powered analysis with ATS optimization suggestions.</p>
             <form onSubmit={handleSubmit} className="ats-form">
                 <div className="form-group">
                     <label htmlFor="resumeFile">Upload Your Resume:</label>
@@ -85,55 +85,126 @@ const ResumeBuilder = () => {
 
             {analysisResult && (
                 <div className="analysis-result">
-                    <h3>Analysis Results:</h3>
-                    {analysisResult.extracted_resume_text_sample && (
-                        <div className="extracted-text-preview">
-                            <h4>Extracted Resume Text (Sample):</h4>
-                            <pre>{analysisResult.extracted_resume_text_sample}</pre>
-                            <p className="disclaimer-note">
-                                * This is a sample of text extracted from your file. Discrepancies may occur due to complex formatting.
-                            </p>
+                    <div className="analysis-header">
+                        <h3>🎯 AI-Powered Resume Analysis</h3>
+                        <div className="score-cards">
+                            <div className="score-card overall-score">
+                                <div className="score-label">Overall Match</div>
+                                <div className="score-value">{analysisResult.overall_match_score}</div>
+                            </div>
+                            <div className="score-card ats-score">
+                                <div className="score-label">ATS Compatibility</div>
+                                <div className="score-value">{analysisResult.ats_compatibility_score}</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Resume Strengths */}
+                    {analysisResult.resume_strengths && analysisResult.resume_strengths.length > 0 && (
+                        <div className="strengths-section">
+                            <h4>✅ Resume Strengths</h4>
+                            <div className="strengths-list">
+                                {analysisResult.resume_strengths.map((strength, index) => (
+                                    <div key={index} className="strength-item">
+                                        <span className="strength-icon">💪</span>
+                                        <span>{strength}</span>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     )}
-                    <p><strong>Keyword Match Score:</strong> {analysisResult.match_score}</p>
 
-                    <div className="keyword-section">
-                        <h4>Matching Keywords:</h4>
-                        {analysisResult.matching_keywords && analysisResult.matching_keywords.length > 0 ? (
-                            <div className="keywords-list green-keywords">
-                                {analysisResult.matching_keywords.map((keyword, index) => (
-                                    <span key={index} className="keyword-tag">{keyword}</span>
-                                ))}
-                            </div>
-                        ) : (
-                            <p>No direct matching keywords found.</p>
-                        )}
+                    {/* Keywords Analysis */}
+                    <div className="keywords-analysis">
+                        <div className="keyword-section matched">
+                            <h4>✅ Matched Keywords</h4>
+                            {analysisResult.matched_keywords && analysisResult.matched_keywords.length > 0 ? (
+                                <div className="keywords-list">
+                                    {analysisResult.matched_keywords.map((keyword, index) => (
+                                        <span key={index} className="keyword-tag matched">{keyword}</span>
+                                    ))}
+                                </div>
+                            ) : (
+                                <p className="no-keywords">No matching keywords found</p>
+                            )}
+                        </div>
+
+                        <div className="keyword-section missing">
+                            <h4>⚠️ Missing Important Keywords</h4>
+                            {analysisResult.missing_important_keywords && analysisResult.missing_important_keywords.length > 0 ? (
+                                <div className="keywords-list">
+                                    {analysisResult.missing_important_keywords.map((keyword, index) => (
+                                        <span key={index} className="keyword-tag missing">{keyword}</span>
+                                    ))}
+                                </div>
+                            ) : (
+                                <p className="no-keywords">Great! All important keywords are present</p>
+                            )}
+                        </div>
                     </div>
 
-                    <div className="keyword-section">
-                        <h4>Missing Keywords from Job Description:</h4>
-                        {analysisResult.missing_keywords && analysisResult.missing_keywords.length > 0 ? (
-                            <div className="keywords-list red-keywords">
-                                {analysisResult.missing_keywords.map((keyword, index) => (
-                                    <span key={index} className="keyword-tag">{keyword}</span>
-                                ))}
-                            </div>
-                        ) : (
-                            <p>All identified keywords from the job description appear to be present!</p>
-                        )}
-                    </div>
-
-                    {analysisResult.suggestions && analysisResult.suggestions.length > 0 && (
+                    {/* Improvement Suggestions */}
+                    {analysisResult.improvement_suggestions && analysisResult.improvement_suggestions.length > 0 && (
                         <div className="suggestions-section">
-                            <h4>Suggestions for Improvement:</h4>
-                            <ul>
-                                {analysisResult.suggestions.map((suggestion, index) => (
-                                    <li key={index}>{suggestion}</li>
+                            <h4>💡 Improvement Suggestions</h4>
+                            <div className="suggestions-grid">
+                                {analysisResult.improvement_suggestions.map((category, index) => (
+                                    <div key={index} className="suggestion-category">
+                                        <h5>{category.category}</h5>
+                                        <ul>
+                                            {category.suggestions.map((suggestion, sIndex) => (
+                                                <li key={sIndex}>{suggestion}</li>
+                                            ))}
+                                        </ul>
+                                    </div>
                                 ))}
-                            </ul>
+                            </div>
                         </div>
                     )}
-                    <p className="disclaimer-note">{analysisResult.disclaimer}</p>
+
+                    {/* Action Items */}
+                    {analysisResult.action_items && analysisResult.action_items.length > 0 && (
+                        <div className="action-items-section">
+                            <h4>🚀 Immediate Action Items</h4>
+                            <div className="action-items-list">
+                                {analysisResult.action_items.map((action, index) => (
+                                    <div key={index} className="action-item">
+                                        <span className="action-number">{index + 1}</span>
+                                        <span className="action-text">{action}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Recommended Additions */}
+                    {analysisResult.recommended_additions && analysisResult.recommended_additions.length > 0 && (
+                        <div className="recommendations-section">
+                            <h4>➕ Recommended Additions</h4>
+                            <div className="recommendations-list">
+                                {analysisResult.recommended_additions.map((recommendation, index) => (
+                                    <div key={index} className="recommendation-item">
+                                        <span className="recommendation-icon">📝</span>
+                                        <span>{recommendation}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Extracted Resume Text */}
+                    {analysisResult.extracted_resume_text_sample && (
+                        <div className="extracted-text-section">
+                            <h4>📄 Extracted Resume Text (Sample)</h4>
+                            <div className="extracted-text-preview">
+                                <pre>{analysisResult.extracted_resume_text_sample}</pre>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="disclaimer">
+                        <p>{analysisResult.disclaimer}</p>
+                    </div>
                 </div>
             )}
         </div>
