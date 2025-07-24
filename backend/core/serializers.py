@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import CompanyDrive, Skill, LearningTopic, LearningResource
+from .models import CompanyDrive, MockInterviewQuestion, Skill, LearningTopic, LearningResource
 
 class CompanyDriveSerializer(serializers.ModelSerializer):
     class Meta:
@@ -40,3 +40,8 @@ class PrepPlanOutputSerializer(serializers.Serializer):
             child=serializers.DictField() # Expecting {'skill': '...', 'topics': [...]}
         )
     )
+
+class MockInterviewQuestionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MockInterviewQuestion
+        fields = ['id', 'question_text', 'difficulty_level', 'role'] # Expose relevant fields for frontend

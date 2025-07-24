@@ -1,0 +1,82 @@
+/* frontend/src/components/MockInterviews.css */
+.interview-setup,
+.interview-session,
+.interview-summary {
+    background-color: #f9f9f9;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    margin-bottom: 30px;
+}
+
+.interview-setup .form-group {
+    margin-bottom: 15px;
+}
+
+.interview-setup label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+    color: #555;
+}
+
+.interview-setup select,
+.interview-setup input[type="text"] {
+    width: calc(100% - 22px);
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    font-size: 16px;
+    color: #333;
+}
+
+.interview-session h3 {
+    color: #007bff;
+    margin-bottom: 15px;
+}
+
+.question-text {
+    font-size: 1.1em;
+    margin-bottom: 15px;
+    line-height: 1.6;
+}
+
+.answer-textarea {
+    width: calc(100% - 22px);
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    font-size: 16px;
+    min-height: 150px;
+    resize: vertical;
+    margin-bottom: 15px;
+    color: #333; /* For dark mode text visibility */
+}
+
+.interview-summary h3 {
+    color: #28a745;
+    margin-bottom: 15px;
+}
+
+.question-summary-item {
+    background-color: #eaf7f7;
+    border: 1px solid #d4edda;
+    border-radius: 5px;
+    padding: 15px;
+    margin-bottom: 15px;
+}
+
+.question-summary-item p {
+    margin-bottom: 5px;
+}
+
+.question-summary-item strong {
+    color: #333;
+}
+
+.feedback-note {
+    font-style: italic;
+    font-size: 0.9em;
+    color: #666;
+    margin-top: 10px;
+}

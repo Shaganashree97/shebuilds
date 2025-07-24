@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import './index.css'; // Global styles
 import CompanyList from './components/CompanyList';
-import PreparationPlan from './components/PreparationPlan'; // Import the new component
-// import MockInterviews from './components/MockInterviews'; // Will add later
+import PreparationPlan from './components/PreparationPlan';
+import MockInterviews from './components/MockInterviews'; // Import the new component
 
 function App() {
   const [activeModule, setActiveModule] = useState('companies'); // 'companies', 'preparation', 'mock_interviews'
@@ -20,21 +20,16 @@ function App() {
                   style={{ backgroundColor: activeModule === 'preparation' ? '#007bff' : '#3498db' }}>
             Personalized Prep
           </button>
-          {/* Add Mock Interviews button here later */}
-          {/*
           <button onClick={() => setActiveModule('mock_interviews')}
                   style={{ backgroundColor: activeModule === 'mock_interviews' ? '#007bff' : '#3498db' }}>
             Mock Interviews
           </button>
-          */}
         </nav>
       </header>
       <main>
         {activeModule === 'companies' && <CompanyList />}
-        {activeModule === 'preparation' && <PreparationPlan />} {/* Render the PreparationPlan component */}
-        {/*
-        {activeModule === 'mock_interviews' && <MockInterviews />}
-        */}
+        {activeModule === 'preparation' && <PreparationPlan />}
+        {activeModule === 'mock_interviews' && <MockInterviews />} {/* Render the MockInterviews component */}
       </main>
     </div>
   );

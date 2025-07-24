@@ -1,11 +1,12 @@
 from rest_framework import viewsets
 from rest_framework import filters
-from .models import Skill, LearningTopic, LearningResource, CompanyDrive
-from .serializers import CompanyDriveSerializer, PrepPlanInputSerializer, SkillSerializer, LearningTopicSerializer, LearningResourceSerializer
+from .models import Skill, LearningTopic, LearningResource, CompanyDrive, MockInterviewQuestion
+from .serializers import CompanyDriveSerializer, PrepPlanInputSerializer, SkillSerializer, LearningTopicSerializer, LearningResourceSerializer, MockInterviewQuestionSerializer
 
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from django.shortcuts import get_object_or_404
 from django.db.models import Q # Used for complex lookups
 
 class CompanyDriveViewSet(viewsets.ModelViewSet):
@@ -106,3 +107,52 @@ class PersonalizedPrepPlanView(APIView):
         plan_details["sections"] = sections
 
         return Response(plan_details, status=status.HTTP_200_OK)
+
+class GenerateMockInterviewView(APIView):
+    def post(self, request, *args, **kwargs):
+        company_id = request.data.get('company_id')
+        role = request.data.get('role')
+        num_questions = request.data.get('num_questions', 5) # Default to 5 questions
+
+        if not company_id or not role:
+            return Response({"error": "Company ID and Role are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            company = get_object_or_404(CompanyDrive, id=company_id)
+        except Exception:
+            return Response({"error": f"Company with ID {company_id} not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Build query to get relevant questions
+        # Prioritize questions specifically for this company and role
+        questions_query = MockInterviewQuestion.objects.filter(
+            company=company,
+            role__iexact=role # Case-insensitive match for role
+        )
+
+        # If not enough specific questions, broaden the search (Hackathon logic)
+        if questions_query.count() < num_questions:
+            # Try to get general questions for the role (not company specific)
+            general_role_questions = MockInterviewQuestion.objects.filter(
+                Q(company__isnull=True) | Q(company=None), # Questions not tied to specific companies
+                role__iexact=role
+            )
+            # Or questions specific to company but general role (if such data existed)
+            # Or just any questions for that role from any company
+
+            # For hackathon simplicity, just take random ones for the role if company specific are few
+            questions_query = (questions_query | general_role_questions).distinct()
+
+
+        # Get a random selection of questions
+        selected_questions = questions_query.order_by('?')[:num_questions]
+
+        if not selected_questions.exists():
+            return Response({"error": f"No mock interview questions found for '{company.company_name}' as '{role}'. Please try another combination or add more data."}, status=status.HTTP_404_NOT_FOUND)
+
+
+        serializer = MockInterviewQuestionSerializer(selected_questions, many=True)
+        return Response({
+            "company_name": company.company_name,
+            "role": role,
+            "questions": serializer.data
+        }, status=status.HTTP_200_OK)

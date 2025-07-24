@@ -50,3 +50,17 @@ class LearningResource(models.Model):
 
     def __str__(self):
         return self.title
+    
+
+class MockInterviewQuestion(models.Model):
+    # Foreign Key to CompanyDrive, so each question is linked to a specific company drive
+    company = models.ForeignKey(CompanyDrive, on_delete=models.CASCADE, related_name='mock_questions')
+    role = models.CharField(max_length=100, help_text="e.g., 'Software Engineer', 'Data Analyst'")
+    question_text = models.TextField()
+    difficulty_level = models.CharField(max_length=20, choices=[('Easy', 'Easy'), ('Medium', 'Medium'), ('Hard', 'Hard')])
+    # Optional: You could add fields for expected answer, keywords for future AI feedback
+    # expected_answer = models.TextField(blank=True)
+    # expected_keywords = models.TextField(blank=True, help_text="Comma-separated keywords for basic evaluation")
+
+    def __str__(self):
+        return f"Mock Q for {self.company.company_name} ({self.role}) - {self.difficulty_level}"

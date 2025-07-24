@@ -1,6 +1,6 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import CompanyDriveViewSet, PersonalizedPrepPlanView
+from .views import CompanyDriveViewSet, PersonalizedPrepPlanView, GenerateMockInterviewView
 
 router = DefaultRouter()
 router.register(r'companies', CompanyDriveViewSet) # This will create routes like /api/companies/
@@ -8,4 +8,5 @@ router.register(r'companies', CompanyDriveViewSet) # This will create routes lik
 urlpatterns = [
     path('', include(router.urls)),
     path('generate_prep_plan/', PersonalizedPrepPlanView.as_view(), name='generate-prep-plan'),
+    path('generate_mock_interview/', GenerateMockInterviewView.as_view(), name='generate-mock-interview'),
 ]
