@@ -1,0 +1,171 @@
+/* frontend/src/components/ResumeBuilder.css */
+.ats-form {
+    background-color: #f9f9f9;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    margin-bottom: 30px;
+}
+
+.ats-form .form-group {
+    margin-bottom: 15px;
+}
+
+.ats-form label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+    color: #555;
+}
+
+.ats-form input[type="file"] {
+    display: block; /* Make it take full width on its line */
+    margin-top: 5px;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    background-color: #fff;
+    font-size: 16px;
+    color: #333;
+}
+
+.ats-form .file-info {
+    font-size: 0.9em;
+    color: #666;
+    margin-top: 5px;
+}
+
+.ats-form textarea {
+    width: calc(100% - 22px); /* Adjust for padding and border */
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    font-size: 16px;
+    min-height: 150px;
+    resize: vertical;
+    color: #333; /* For dark mode text visibility */
+}
+
+.ats-form button {
+    background-color: #007bff; /* Blue button */
+    color: white;
+    padding: 12px 20px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 18px;
+    transition: background-color 0.2s ease;
+}
+
+.ats-form button:hover:not(:disabled) {
+    background-color: #0056b3;
+}
+
+.ats-form button:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+}
+
+.analysis-result {
+    background-color: #e6f7ff; /* Light blue background */
+    padding: 20px;
+    border-radius: 8px;
+    border: 1px solid #99daff;
+    margin-top: 20px;
+}
+
+.analysis-result h3 {
+    color: #0056b3; /* Darker blue heading */
+    margin-top: 0;
+}
+
+.extracted-text-preview {
+    background-color: #f0f0f0;
+    border: 1px dashed #ccc;
+    padding: 10px;
+    margin-bottom: 15px;
+    max-height: 200px; /* Limit height */
+    overflow-y: auto; /* Make scrollable */
+    color: #555;
+    font-family: monospace;
+    white-space: pre-wrap; /* Preserve whitespace and wrap text */
+}
+
+.extracted-text-preview h4 {
+    margin-top: 0;
+    color: #333;
+    font-size: 1em;
+}
+
+
+.keyword-section {
+    margin-top: 15px;
+    margin-bottom: 15px;
+    padding-bottom: 15px;
+    border-bottom: 1px dashed #ddd;
+}
+
+.keyword-section:last-child {
+    border-bottom: none;
+}
+
+.keyword-section h4 {
+    color: #333;
+    margin-bottom: 10px;
+}
+
+.keywords-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.keyword-tag {
+    padding: 6px 10px;
+    border-radius: 15px;
+    font-size: 0.9em;
+    font-weight: bold;
+}
+
+.green-keywords .keyword-tag {
+    background-color: #d4edda; /* Light green */
+    color: #155724; /* Dark green text */
+    border: 1px solid #c3e6cb;
+}
+
+.red-keywords .keyword-tag {
+    background-color: #f8d7da; /* Light red */
+    color: #721c24; /* Dark red text */
+    border: 1px solid #f5c6cb;
+}
+
+.suggestions-section {
+    background-color: #fff3cd; /* Light yellow */
+    border: 1px solid #ffeeba;
+    border-radius: 5px;
+    padding: 15px;
+    margin-top: 20px;
+}
+
+.suggestions-section h4 {
+    color: #856404; /* Dark yellow text */
+    margin-top: 0;
+}
+
+.suggestions-section ul {
+    list-style-type: disc;
+    padding-left: 20px;
+}
+
+.suggestions-section li {
+    margin-bottom: 5px;
+    line-height: 1.4;
+}
+
+.disclaimer-note {
+    font-style: italic;
+    font-size: 0.85em;
+    color: #6c757d;
+    margin-top: 20px;
+    text-align: center;
+}
