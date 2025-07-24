@@ -29,7 +29,19 @@ class LearningTopicSerializer(serializers.ModelSerializer):
 # This serializer is for the input to the plan generation API
 class PrepPlanInputSerializer(serializers.Serializer):
     academic_course_details = serializers.CharField(max_length=500)
-    preferred_role = serializers.CharField(max_length=100)
+    preferred_role = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    job_description = serializers.CharField(max_length=2000, required=False, allow_blank=True)
+    
+    def validate(self, data):
+        preferred_role = data.get('preferred_role', '').strip()
+        job_description = data.get('job_description', '').strip()
+        
+        if not preferred_role and not job_description:
+            raise serializers.ValidationError(
+                "Either 'preferred_role' or 'job_description' must be provided."
+            )
+        
+        return data
 
 # This serializer is for the structured output of the plan
 class PrepPlanOutputSerializer(serializers.Serializer):

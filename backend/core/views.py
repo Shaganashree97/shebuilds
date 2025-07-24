@@ -8,13 +8,20 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.shortcuts import get_object_or_404
 from django.db.models import Q # Used for complex lookups
+from django.conf import settings
 
 import re
 import io # To handle file in-memory
+import json
+import os
 
 # Import libraries for file parsing
 from PyPDF2 import PdfReader # For PDF
 from docx import Document # For DOCX
+import google.generativeai as genai
+
+
+
 
 class CompanyDriveViewSet(viewsets.ModelViewSet):
     queryset = CompanyDrive.objects.all()
@@ -32,88 +39,274 @@ class PersonalizedPrepPlanView(APIView):
         if not input_serializer.is_valid():
             return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        preferred_role = input_serializer.validated_data.get('preferred_role', '').lower()
-        academic_details = input_serializer.validated_data.get('academic_course_details', '').lower()
+        preferred_role = input_serializer.validated_data.get('preferred_role', '').strip()
+        job_description = input_serializer.validated_data.get('job_description', '').strip()
+        academic_details = input_serializer.validated_data.get('academic_course_details', '').strip()
 
-        # --- Hackathon Logic for Plan Generation ---
-        # This is a simplified, rule-based approach for the hackathon.
-        # In a real application, this would involve NLP, more sophisticated
-        # skill mapping, and potentially user performance data.
+        # Check if Gemini API is available and configured
+        gemini_api_key = os.environ.get('GEMINI_API_KEY')
+        print("this is gemini api key", gemini_api_key)
+        
+        if gemini_api_key:
+            try:
+                return self._generate_with_gemini(preferred_role, job_description, academic_details)
+            except Exception as e:
+                print(f"Gemini API error: {e}")
+                # Fall back to rule-based approach
+                return self._generate_fallback(preferred_role, job_description, academic_details)
+        else:
+            # Use fallback rule-based approach
+            return self._generate_fallback(preferred_role, job_description, academic_details)
 
-        plan_details = {
-            "summary": f"Personalized plan for aspiring {preferred_role} based on your academic background.",
-            "sections": []
-        }
+    def _generate_with_gemini(self, preferred_role, job_description, academic_details):
+        """Generate preparation plan using Gemini API"""
+        genai.configure(api_key=os.environ.get('GEMINI_API_KEY'))
+        model = genai.GenerativeModel('gemini-2.0-flash')
+        
+        # Create prompt for Gemini
+        prompt = self._create_gemini_prompt(preferred_role, job_description, academic_details)
+        
+        response = model.generate_content(prompt)
+        gemini_response = response.text
+        
+        # Parse the Gemini response and structure it
+        plan_details = self._parse_gemini_response(gemini_response, preferred_role, job_description)
+        
+        return Response(plan_details, status=status.HTTP_200_OK)
 
-        # 1. Infer Core Skills based on Preferred Role (Dummy Data Mapping)
-        # This should map preferred roles to a list of core skill names
+    def _create_gemini_prompt(self, preferred_role, job_description, academic_details):
+        """Create a structured prompt for Gemini API"""
+        target_role = preferred_role if preferred_role else "the role described in the job description"
+        
+        prompt = f"""
+        Create a comprehensive, personalized study plan for someone preparing for {target_role}.
+
+        INPUTS:
+        - Academic Details: {academic_details}
+        - Preferred Role: {preferred_role if preferred_role else 'Not specified'}
+        - Job Description: {job_description if job_description else 'Not provided'}
+
+        Please provide a response in the following JSON format:
+        {{
+            "summary": "A brief overview of the preparation plan (2-3 sentences)",
+            "time_estimation": {{
+                "total_weeks": number,
+                "breakdown": "Brief explanation of time allocation"
+            }},
+            "roadmap": [
+                {{
+                    "phase": "Phase name (e.g., Foundation, Intermediate, Advanced)",
+                    "duration_weeks": number,
+                    "skills": [
+                        {{
+                            "name": "Skill name",
+                            "description": "Brief description",
+                            "priority": "high/medium/low",
+                            "topics": [
+                                {{
+                                    "name": "Topic name",
+                                    "description": "What to learn",
+                                    "estimated_hours": number
+                                }}
+                            ]
+                        }}
+                    ]
+                }}
+            ]
+        }}
+
+        Focus on:
+        1. Skills most relevant to the target role
+        2. Building upon the user's academic background
+        3. Practical, actionable learning topics
+        4. Realistic time estimates
+        5. Progressive skill building (foundation to advanced)
+        
+        Ensure the JSON is valid and complete.
+        """
+        
+        return prompt
+
+    def _parse_gemini_response(self, gemini_response, preferred_role, job_description):
+        """Parse Gemini's response and format it for frontend"""
+        try:
+            # Try to extract JSON from the response
+            import json
+            import re
+            
+            # Find JSON in the response
+            json_match = re.search(r'\{.*\}', gemini_response, re.DOTALL)
+            if json_match:
+                json_str = json_match.group()
+                parsed_data = json.loads(json_str)
+                
+                # Transform to our expected format
+                plan_details = {
+                    "summary": parsed_data.get("summary", "Personalized preparation plan generated by AI"),
+                    "time_estimation": parsed_data.get("time_estimation", {
+                        "total_weeks": 12,
+                        "breakdown": "AI-generated time estimation"
+                    }),
+                    "sections": [],
+                    "roadmap": parsed_data.get("roadmap", [])
+                }
+                
+                # Convert roadmap to sections format for compatibility
+                for phase in parsed_data.get("roadmap", []):
+                    for skill in phase.get("skills", []):
+                        plan_details["sections"].append({
+                            "skill": skill.get("name", ""),
+                            "phase": phase.get("phase", ""),
+                            "priority": skill.get("priority", "medium"),
+                            "topics": [
+                                {
+                                    "name": topic.get("name", ""),
+                                    "description": topic.get("description", ""),
+                                    "estimated_hours": topic.get("estimated_hours", 0),
+                                    "resources": self._get_matching_resources(topic.get("name", ""))
+                                }
+                                for topic in skill.get("topics", [])
+                            ]
+                        })
+                
+                return plan_details
+                
+        except Exception as e:
+            print(f"Error parsing Gemini response: {e}")
+            
+        # Fallback if parsing fails
+        return self._generate_fallback(preferred_role, job_description, "")
+
+    def _get_matching_resources(self, topic_name):
+        """Get learning resources that match a topic name"""
+        # Simple keyword matching with existing resources
+        resources = LearningResource.objects.filter(
+            title__icontains=topic_name
+        ) or LearningResource.objects.filter(
+            associated_topics__name__icontains=topic_name
+        )
+        
+        return LearningResourceSerializer(resources[:3], many=True).data
+
+    def _generate_fallback(self, preferred_role, job_description, academic_details):
+        """Fallback rule-based approach when Gemini API is not available"""
+        target_role = preferred_role if preferred_role else "Software Engineer"
+        
+        # Enhanced rule-based mapping
         role_to_skills_map = {
             "software engineer": ["Data Structures & Algorithms", "Object-Oriented Programming", "Web Development Basics", "Database Management Systems", "Version Control (Git)"],
             "data analyst": ["Statistics", "Python for Data Analysis", "SQL", "Data Visualization", "Excel"],
             "machine learning engineer": ["Machine Learning Basics", "Deep Learning", "Python for Data Science", "Calculus & Linear Algebra"],
-            "front end developer": ["HTML/CSS", "JavaScript", "React.js Basics", "Responsive Design"],
+            "frontend developer": ["HTML/CSS", "JavaScript", "React.js Basics", "Responsive Design"],
             "backend developer": ["Python (Django)", "Node.js (Express)", "APIs & Microservices", "Database Management Systems"],
-            # Add more specific roles as needed for your dummy data
+            "full stack developer": ["Web Development Basics", "Database Management Systems", "APIs & Microservices", "JavaScript", "React.js Basics"],
+            "devops engineer": ["Version Control (Git)", "APIs & Microservices", "Database Management Systems", "System Administration"],
         }
         
-        # Get relevant skills from the map, default to general if role not found
-        relevant_skill_names = role_to_skills_map.get(preferred_role, ["General Aptitude", "Basic Coding", "Communication"])
+        # If job description is provided, extract skills from it
+        if job_description:
+            relevant_skill_names = self._extract_skills_from_job_description(job_description)
+        else:
+            relevant_skill_names = role_to_skills_map.get(target_role.lower(), ["General Aptitude", "Basic Coding", "Communication"])
 
-        # 2. Adjust Skills based on Academic Details (Simple Keyword Matching)
-        # This is very basic; in a real app, use more robust NLP.
-        if "data structures" in academic_details or "algorithms" in academic_details or "dsa" in academic_details:
-            if "Data Structures & Algorithms" not in relevant_skill_names:
-                relevant_skill_names.append("Data Structures & Algorithms")
-        if "database" in academic_details or "sql" in academic_details or "dbms" in academic_details:
-            if "Database Management Systems" not in relevant_skill_names:
-                relevant_skill_names.append("Database Management Systems")
-        if "python" in academic_details and "data" in academic_details:
-             if "Python for Data Analysis" not in relevant_skill_names:
-                relevant_skill_names.append("Python for Data Analysis")
-        if "web" in academic_details and ("frontend" in academic_details or "react" in academic_details):
-             if "Web Development Basics" not in relevant_skill_names:
-                relevant_skill_names.append("Web Development Basics")
-        # Ensure unique skills and maintain order for a consistent plan
-        relevant_skill_names = list(dict.fromkeys(relevant_skill_names)) # Remove duplicates while preserving order
+        # Adjust based on academic details
+        relevant_skill_names = self._adjust_skills_based_on_academics(relevant_skill_names, academic_details)
 
-        # 3. Fetch Learning Topics and Resources for inferred skills
+        # Generate sections
         sections = []
-        for skill_name in relevant_skill_names:
-            skill_obj = Skill.objects.filter(name=skill_name).first() # .first() to get an instance or None
-
+        for i, skill_name in enumerate(relevant_skill_names):
+            skill_obj = Skill.objects.filter(name=skill_name).first()
+            
             topic_details = []
             if skill_obj:
-                # Get topics related to this skill
                 topics = LearningTopic.objects.filter(related_skills=skill_obj).distinct()
                 for topic in topics:
-                    # Get resources associated with each topic
                     resources_queryset = LearningResource.objects.filter(associated_topics=topic).distinct()
                     resource_data = LearningResourceSerializer(resources_queryset, many=True).data
                     topic_details.append({
                         "name": topic.name,
                         "description": topic.description,
+                        "estimated_hours": 10 + (i * 5),  # Estimated hours
                         "resources": resource_data
                     })
             
-            # Add the skill and its topics/resources to the plan sections
             sections.append({
                 "skill": skill_name,
+                "priority": "high" if i < 3 else "medium",
                 "topics": topic_details
             })
 
-        # 4. Basic Time Estimation (Hackathon Simplification)
-        # You could fetch the earliest upcoming drive date from CompanyDrive for more realistic remaining time.
-        # For simplicity, let's assume a general prep period.
-        total_weeks = 12 # Default total preparation period
-        time_breakdown = "Allocate time based on your current proficiency: prioritize weaker areas. Roughly 60% technical skills, 20% aptitude, 20% soft skills/behavioral."
-
-        plan_details["time_estimation"] = {
-            "total_weeks": total_weeks,
-            "breakdown": time_breakdown
+        plan_details = {
+            "summary": f"Personalized preparation plan for {target_role} based on your academic background.",
+            "time_estimation": {
+                "total_weeks": 12,
+                "breakdown": "Foundation (4 weeks), Intermediate (5 weeks), Advanced (3 weeks)"
+            },
+            "sections": sections,
+            "roadmap": [
+                {
+                    "phase": "Foundation",
+                    "duration_weeks": 4,
+                    "skills": sections[:2]
+                },
+                {
+                    "phase": "Intermediate", 
+                    "duration_weeks": 5,
+                    "skills": sections[2:4]
+                },
+                {
+                    "phase": "Advanced",
+                    "duration_weeks": 3,
+                    "skills": sections[4:]
+                }
+            ]
         }
-        plan_details["sections"] = sections
 
         return Response(plan_details, status=status.HTTP_200_OK)
+
+    def _extract_skills_from_job_description(self, job_description):
+        """Extract skills from job description using keyword matching"""
+        jd_lower = job_description.lower()
+        
+        skill_keywords = {
+            "Data Structures & Algorithms": ["data structures", "algorithms", "dsa", "leetcode", "coding"],
+            "Python for Data Analysis": ["python", "pandas", "numpy", "data analysis"],
+            "Machine Learning Basics": ["machine learning", "ml", "ai", "artificial intelligence"],
+            "Web Development Basics": ["web development", "html", "css", "frontend", "backend"],
+            "JavaScript": ["javascript", "js", "node", "react", "angular", "vue"],
+            "Database Management Systems": ["sql", "database", "mysql", "postgresql", "mongodb"],
+            "Version Control (Git)": ["git", "github", "version control", "gitlab"],
+            "APIs & Microservices": ["api", "rest", "microservices", "web services"],
+            "Statistics": ["statistics", "statistical analysis", "data science"],
+        }
+        
+        relevant_skills = []
+        for skill, keywords in skill_keywords.items():
+            if any(keyword in jd_lower for keyword in keywords):
+                relevant_skills.append(skill)
+        
+        return relevant_skills or ["General Aptitude", "Basic Coding", "Communication"]
+
+    def _adjust_skills_based_on_academics(self, skills, academic_details):
+        """Adjust skills based on academic background"""
+        if not academic_details:
+            return skills
+            
+        academic_lower = academic_details.lower()
+        
+        # Add skills based on academic mentions
+        if "data structures" in academic_lower or "algorithms" in academic_lower:
+            if "Data Structures & Algorithms" not in skills:
+                skills.append("Data Structures & Algorithms")
+        
+        if ("database" in academic_lower or "sql" in academic_lower) and "Database Management Systems" not in skills:
+            skills.append("Database Management Systems")
+            
+        if "python" in academic_lower and "data" in academic_lower:
+            if "Python for Data Analysis" not in skills:
+                skills.append("Python for Data Analysis")
+        
+        return list(dict.fromkeys(skills))  # Remove duplicates
 
 class GenerateMockInterviewView(APIView):
     def post(self, request, *args, **kwargs):
@@ -168,30 +361,49 @@ class GenerateMockInterviewView(APIView):
 class ResumeCheckerAPIView(APIView):
     def post(self, request, *args, **kwargs):
         job_description_text = request.data.get('job_description_text', '')
-        resume_file = request.FILES.get('resume_file') # Get the uploaded file
+        resume_file = request.FILES.get('resume_file')
 
         if not resume_file or not job_description_text:
             return Response(
                 {"error": "Both resume file and job description text are required."},
-                status=status.HTTP_400_BAD_REQUEST
+                status=status.HTTP_400_BAD_REQUEST  
             )
 
+        # Extract text from resume file
+        resume_text = self._extract_text_from_file(resume_file)
+        
+        if isinstance(resume_text, Response):  # Error response
+            return resume_text
+
+        # Check if Gemini API is available
+        gemini_api_key = os.environ.get('GEMINI_API_KEY')
+        
+        if gemini_api_key:
+            try:
+                return self._analyze_with_gemini(resume_text, job_description_text)
+            except Exception as e:
+                print(f"Gemini API error: {e}")
+                # Fall back to basic analysis
+                return self._analyze_with_fallback(resume_text, job_description_text)
+        else:
+            # Use fallback analysis
+            return self._analyze_with_fallback(resume_text, job_description_text)
+
+    def _extract_text_from_file(self, resume_file):
+        """Extract text from uploaded resume file"""
         resume_text = ""
         file_extension = resume_file.name.split('.')[-1].lower()
 
         try:
             if file_extension == 'pdf':
-                # For PDF, use PyPDF2
                 reader = PdfReader(io.BytesIO(resume_file.read()))
                 for page in reader.pages:
-                    resume_text += page.extract_text() or '' # Use .extract_text()
+                    resume_text += page.extract_text() or ''
             elif file_extension == 'docx':
-                # For DOCX, use python-docx
                 document = Document(io.BytesIO(resume_file.read()))
                 for para in document.paragraphs:
                     resume_text += para.text + '\n'
             elif file_extension == 'txt':
-                # For plain text files
                 resume_text = resume_file.read().decode('utf-8')
             else:
                 return Response(
@@ -199,7 +411,6 @@ class ResumeCheckerAPIView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
         except Exception as e:
-            # Catch errors during file processing (e.g., corrupted file, malformed PDF)
             print(f"Error processing resume file: {e}")
             return Response(
                 {"error": "Could not process resume file. Please ensure it's a valid and readable PDF/DOCX/TXT file.", "details": str(e)},
@@ -212,18 +423,128 @@ class ResumeCheckerAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # --- Keyword Matching Logic (Reused and slightly refined) ---
+        return resume_text
 
+    def _analyze_with_gemini(self, resume_text, job_description_text):
+        """Analyze resume using Gemini AI"""
+        genai.configure(api_key=os.environ.get('GEMINI_API_KEY'))
+        model = genai.GenerativeModel('gemini-2.0-flash')
+        
+        prompt = self._create_resume_analysis_prompt(resume_text, job_description_text)
+        
+        response = model.generate_content(prompt)
+        gemini_response = response.text
+        
+        # Parse the Gemini response
+        analysis_result = self._parse_gemini_analysis_response(gemini_response, resume_text)
+        
+        return Response(analysis_result, status=status.HTTP_200_OK)
+
+    def _create_resume_analysis_prompt(self, resume_text, job_description_text):
+        """Create a structured prompt for Gemini AI resume analysis"""
+        prompt = f"""
+        You are an expert ATS (Applicant Tracking System) and career coach. Analyze the following resume against the job description and provide comprehensive feedback.
+
+        RESUME TEXT:
+        {resume_text}
+
+        JOB DESCRIPTION:
+        {job_description_text}
+
+        Please provide your analysis in the following JSON format:
+        {{
+            "overall_match_score": "X/10 - Brief explanation",
+            "ats_compatibility_score": "X/10 - Brief explanation",
+            "matched_keywords": [
+                "keyword1", "keyword2", "keyword3"
+            ],
+            "missing_important_keywords": [
+                "missing_keyword1", "missing_keyword2"
+            ],
+            "resume_strengths": [
+                "Strength 1 with specific example from resume",
+                "Strength 2 with specific example from resume"
+            ],
+            "improvement_suggestions": [
+                {{
+                    "category": "Keywords & Skills",
+                    "suggestions": [
+                        "Specific suggestion 1",
+                        "Specific suggestion 2"
+                    ]
+                }},
+                {{
+                    "category": "Experience & Achievements",
+                    "suggestions": [
+                        "Specific suggestion 1",
+                        "Specific suggestion 2"
+                    ]
+                }},
+                {{
+                    "category": "Formatting & Structure",
+                    "suggestions": [
+                        "Specific suggestion 1",
+                        "Specific suggestion 2"
+                    ]
+                }}
+            ],
+            "action_items": [
+                "Immediate action 1",
+                "Immediate action 2",
+                "Immediate action 3"
+            ],
+            "recommended_additions": [
+                "Section/skill to add 1",
+                "Section/skill to add 2"
+            ]
+        }}
+
+        Focus on:
+        1. ATS optimization and keyword matching
+        2. Relevance to the specific job requirements
+        3. Quantifiable achievements and impact statements
+        4. Technical skills alignment
+        5. Experience relevance and presentation
+        6. Resume structure and formatting for ATS compatibility
+        7. Missing critical information that employers expect
+        8. Specific, actionable recommendations
+
+        Ensure your response contains valid JSON only.
+        """
+        
+        return prompt
+
+    def _parse_gemini_analysis_response(self, gemini_response, resume_text):
+        """Parse Gemini's analysis response and format it"""
+        try:
+            # Extract JSON from the response
+            json_match = re.search(r'\{.*\}', gemini_response, re.DOTALL)
+            if json_match:
+                json_str = json_match.group()
+                parsed_data = json.loads(json_str)
+                
+                # Add extracted resume text sample for reference
+                parsed_data["extracted_resume_text_sample"] = resume_text[:500] + "..." if len(resume_text) > 500 else resume_text
+                parsed_data["disclaimer"] = "This analysis is AI-powered and provides comprehensive resume optimization suggestions. Always review recommendations in context of your specific situation."
+                
+                return parsed_data
+                
+        except Exception as e:
+            print(f"Error parsing Gemini analysis response: {e}")
+            
+        # Fallback if parsing fails
+        return self._analyze_with_fallback(resume_text, job_description_text).data
+
+    def _analyze_with_fallback(self, resume_text, job_description_text):
+        """Fallback analysis using basic keyword matching"""
         def tokenize_text(text):
             text = text.lower()
-            # Replace common non-alphanumeric characters with space to help split words better
             text = re.sub(r'[^a-z0-9\s]', ' ', text)
             return set(text.split())
 
         resume_words = tokenize_text(resume_text)
         job_words = tokenize_text(job_description_text)
 
-        # Common stopwords (can be expanded)
         stopwords = {"a", "an", "the", "and", "or", "is", "are", "of", "to", "in", "for", "with", "on", "at", "as", "by",
                      "be", "has", "have", "had", "will", "can", "may", "do", "does", "did", "not", "but", "if", "then",
                      "such", "this", "that", "these", "those", "we", "you", "he", "she", "it", "they", "them", "us", "our",
@@ -232,49 +553,38 @@ class ResumeCheckerAPIView(APIView):
                      "how", "all", "any", "both", "each", "few", "more", "most", "other", "some", "such", "no", "nor", "only",
                      "own", "same", "so", "than", "too", "very", "s", "t", "can", "will", "just", "don", "should", "now"}
 
-        # Filter job description words to create keywords (longer than 2 chars, not stopwords)
         job_keywords = {word for word in job_words if len(word) > 2 and word not in stopwords}
-
         matching_keywords = list(resume_words.intersection(job_keywords))
         missing_keywords = list(job_keywords.difference(resume_words))
 
-        # --- Suggestions for Improvement (Enhanced for Hackathon) ---
+        # Basic suggestions
         suggestions = []
-
-        # 1. Keyword Density/Completeness
-        if not job_keywords: # Edge case: empty JD
-            suggestions.append("The job description provided seems to be very short or lack clear keywords. Please provide a more detailed job description for better analysis.")
-        elif not matching_keywords:
-            suggestions.append("Your resume currently has very few direct keyword matches with the job description. Focus on integrating relevant terms.")
-        elif len(missing_keywords) > (len(job_keywords) * 0.3): # More than 30% missing
-            suggestions.append("A significant number of key terms from the job description are missing. Review the 'Missing Keywords' section and try to incorporate them naturally.")
-        else:
-            suggestions.append("Good job on including many relevant keywords! Review any 'Missing Keywords' for further optimization.")
-
-        # 2. Action Verbs (Basic check, could be more sophisticated with NLP)
+        if len(missing_keywords) > (len(job_keywords) * 0.3):
+            suggestions.append("Consider incorporating more keywords from the job description.")
+        
         action_verbs = {"managed", "developed", "led", "created", "implemented", "designed", "optimized", "achieved", "reduced", "increased"}
         if not any(verb in resume_text.lower() for verb in action_verbs):
-            suggestions.append("Consider starting bullet points with strong action verbs to highlight your contributions (e.g., 'Developed X', 'Managed Y').")
-
-        # 3. Quantifiable Achievements (Heuristic)
-        # Look for numbers or percentages near action verbs or skill mentions
-        if not re.search(r'\d+\s*(%|million|thousand|lakh|crore|users|projects|dollars|revenue|sales)', resume_text, re.IGNORECASE):
-            suggestions.append("Try to quantify your achievements with numbers (e.g., 'Increased efficiency by 15%', 'Managed 3 projects'). This makes your impact clearer.")
-
-        # 4. Resume Length (Very basic heuristic)
-        word_count = len(resume_text.split())
-        if word_count < 200:
-            suggestions.append("Your resume seems quite brief. Ensure you've provided enough detail about your experiences and skills.")
-        elif word_count > 800: # Assuming typical 1-2 page for experienced, shorter for freshers
-            suggestions.append("Your resume might be too long. Aim for conciseness and prioritize the most relevant information.")
-
+            suggestions.append("Use strong action verbs to describe your accomplishments.")
 
         response_data = {
-            "match_score": f"{len(matching_keywords)} / {len(job_keywords)}",
-            "matching_keywords": matching_keywords,
-            "missing_keywords": missing_keywords,
-            "suggestions": suggestions,
-            "extracted_resume_text_sample": resume_text[:500] + "..." if len(resume_text) > 500 else resume_text, # Show some extracted text
+            "overall_match_score": f"{len(matching_keywords)}/{len(job_keywords)} keywords matched",
+            "ats_compatibility_score": "Basic analysis - upgrade to AI analysis for detailed score",
+            "matched_keywords": matching_keywords[:10],  # Limit to first 10
+            "missing_important_keywords": missing_keywords[:10],  # Limit to first 10
+            "resume_strengths": ["Resume submitted successfully", "Text extraction completed"],
+            "improvement_suggestions": [
+                {
+                    "category": "Keywords & Skills",
+                    "suggestions": suggestions
+                }
+            ],
+            "action_items": [
+                "Review missing keywords",
+                "Add quantifiable achievements",
+                "Use stronger action verbs"
+            ],
+            "recommended_additions": ["Technical skills section", "Quantified achievements"],
+            "extracted_resume_text_sample": resume_text[:500] + "..." if len(resume_text) > 500 else resume_text,
             "disclaimer": "This is an AI-powered basic ATS keyword and heuristic checker. For best results, always manually review your resume and tailor it specifically for each job. File parsing can sometimes be imperfect."
         }
 

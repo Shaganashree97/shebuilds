@@ -9,7 +9,7 @@ import DiscussionForum from './components/DiscussionForum'; // Import the new co
 function App() {
   // State to manage which module is currently active
   // Options: 'companies', 'preparation', 'mock_interviews', 'resume_builder', 'discussion_forum'
-  const [activeModule, setActiveModule] = useState('companies');
+  const [activeModule, setActiveModule] = useState('preparation');
 
   return (
     <div className="App">
