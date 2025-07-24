@@ -1,7 +1,7 @@
 from rest_framework import viewsets
 from rest_framework import filters
 from .models import Skill, LearningTopic, LearningResource, CompanyDrive, MockInterviewQuestion, DiscussionTopic, DiscussionPost 
-from .serializers import CompanyDriveSerializer, PrepPlanInputSerializer, LearningResourceSerializer, MockInterviewQuestionSerializer, DiscussionTopicSerializer, DiscussionTopicListSerializer, DiscussionPostSerializer
+from .serializers import CompanyDriveSerializer, PrepPlanInputSerializer, LearningResourceSerializer, MockInterviewQuestionSerializer, MockInterviewInputSerializer, MockInterviewResponseSerializer, AnswerEvaluationInputSerializer, AnswerFeedbackSerializer, DiscussionTopicSerializer, DiscussionTopicListSerializer, DiscussionPostSerializer
 
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -14,11 +14,16 @@ import re
 import io # To handle file in-memory
 import json
 import os
+import base64
+import requests
 
 # Import libraries for file parsing
 from PyPDF2 import PdfReader # For PDF
 from docx import Document # For DOCX
 import google.generativeai as genai
+
+# Import ElevenLabs SDK
+from elevenlabs import ElevenLabs
 
 
 
@@ -310,52 +315,426 @@ class PersonalizedPrepPlanView(APIView):
 
 class GenerateMockInterviewView(APIView):
     def post(self, request, *args, **kwargs):
-        company_id = request.data.get('company_id')
-        role = request.data.get('role')
-        num_questions = request.data.get('num_questions', 5) # Default to 5 questions
+        # Validate input using serializer
+        input_serializer = MockInterviewInputSerializer(data=request.data)
+        if not input_serializer.is_valid():
+            return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        if not company_id or not role:
-            return Response({"error": "Company ID and Role are required."}, status=status.HTTP_400_BAD_REQUEST)
+        company_name = input_serializer.validated_data['company_name']
+        job_description = input_serializer.validated_data['job_description']
+        num_questions = input_serializer.validated_data['num_questions']
+
+        # Check if Gemini API is available
+        gemini_api_key = os.environ.get('GEMINI_API_KEY')
+        
+        if gemini_api_key:
+            try:
+                return self._generate_with_gemini(company_name, job_description, num_questions)
+            except Exception as e:
+                print(f"Gemini API error: {e}")
+                # Fall back to basic generation
+                return self._generate_fallback(company_name, job_description, num_questions)
+        else:
+            # Use fallback generation
+            return self._generate_fallback(company_name, job_description, num_questions)
+
+    def _generate_with_gemini(self, company_name, job_description, num_questions):
+        """Generate interview questions using Gemini AI and convert to speech using ElevenLabs"""
+        # Configure Gemini
+        genai.configure(api_key=os.environ.get('GEMINI_API_KEY'))
+        model = genai.GenerativeModel('gemini-2.0-flash')
+
+        # Create prompt for interview question generation
+        prompt = f"""
+        You are an experienced technical interviewer. Generate {num_questions} realistic mock interview questions for the following job posting at {company_name}.
+
+        Job Description:
+        {job_description}
+
+        Requirements:
+        1. Generate questions that are relevant to the specific role and company
+        2. Include a mix of technical, behavioral, and company-specific questions
+        3. Vary the difficulty levels (easy, medium, hard)
+        4. Make questions realistic and commonly asked in actual interviews
+        5. Consider the company culture and values if mentioned in the job description
+
+        Return the response in this exact JSON format:
+        {{
+            "questions": [
+                {{
+                    "question_text": "Your interview question here",
+                    "difficulty_level": "easy|medium|hard"
+                }},
+                ...
+            ]
+        }}
+
+        Make sure each question is:
+        - Clear and specific
+        - Relevant to the job requirements
+        - Professional and realistic
+        - Appropriate for the difficulty level
+        """
 
         try:
-            company = get_object_or_404(CompanyDrive, id=company_id)
-        except Exception:
-            return Response({"error": f"Company with ID {company_id} not found."}, status=status.HTTP_404_NOT_FOUND)
+            # Generate questions using Gemini
+            response = model.generate_content(prompt)
+            response_text = response.text.strip()
+            
+            # Clean and parse JSON response
+            if response_text.startswith('```json'):
+                response_text = response_text[7:]
+            if response_text.endswith('```'):
+                response_text = response_text[:-3]
+            
+            response_data = json.loads(response_text.strip())
+            questions = response_data.get('questions', [])
+            
+            if not questions:
+                raise ValueError("No questions generated")
 
-        # Build query to get relevant questions
-        # Prioritize questions specifically for this company and role
-        questions_query = MockInterviewQuestion.objects.filter(
-            company=company,
-            role__iexact=role # Case-insensitive match for role
-        )
+            # Generate TTS audio for each question
+            questions_with_audio = []
+            for question in questions:
+                question_with_audio = question.copy()
+                
+                # Generate audio using ElevenLabs
+                audio_data = self._generate_tts_audio(question['question_text'])
+                if audio_data:
+                    question_with_audio['audio_data'] = audio_data
+                
+                questions_with_audio.append(question_with_audio)
+            
+            return Response({
+                "company_name": company_name,
+                "questions": questions_with_audio
+            }, status=status.HTTP_200_OK)
 
-        # If not enough specific questions, broaden the search (Hackathon logic)
-        if questions_query.count() < num_questions:
-            # Try to get general questions for the role (not company specific)
-            general_role_questions = MockInterviewQuestion.objects.filter(
-                Q(company__isnull=True) | Q(company=None), # Questions not tied to specific companies
-                role__iexact=role
+        except json.JSONDecodeError as e:
+            print(f"JSON parsing error: {e}")
+            print(f"Response text: {response_text}")
+            return self._generate_fallback(company_name, job_description, num_questions)
+        except Exception as e:
+            print(f"Error in Gemini generation: {e}")
+            return self._generate_fallback(company_name, job_description, num_questions)
+
+    def _generate_tts_audio(self, text):
+        """Generate audio using ElevenLabs TTS API with official SDK"""
+        try:
+            elevenlabs_api_key = os.environ.get('ELEVENLABS_API_KEY')
+            if not elevenlabs_api_key:
+                print("ElevenLabs API key not found")
+                return None
+
+            # Initialize ElevenLabs client
+            client = ElevenLabs(api_key=elevenlabs_api_key)
+            
+            # Generate audio using the official SDK
+            audio = client.text_to_speech.convert(
+                text=text,
+                voice_id="JBFqnCBsd6RMkjVDRZzb",  # George - Professional male voice
+                model_id="eleven_multilingual_v2",  # Better quality model
+                output_format="mp3_44100_128",
+                voice_settings={
+                    "stability": 0.5,
+                    "similarity_boost": 0.75,
+                    "style": 0.2,
+                    "use_speaker_boost": True
+                }
             )
-            # Or questions specific to company but general role (if such data existed)
-            # Or just any questions for that role from any company
+            
+            # Convert the audio generator to bytes
+            audio_bytes = b"".join(audio)
+            
+            # Return base64 encoded audio data for frontend
+            audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
+            return audio_base64
+                
+        except Exception as e:
+            print(f"TTS generation error: {e}")
+            return None
 
-            # For hackathon simplicity, just take random ones for the role if company specific are few
-            questions_query = (questions_query | general_role_questions).distinct()
-
-
-        # Get a random selection of questions
-        selected_questions = questions_query.order_by('?')[:num_questions]
-
-        if not selected_questions.exists():
-            return Response({"error": f"No mock interview questions found for '{company.company_name}' as '{role}'. Please try another combination or add more data."}, status=status.HTTP_404_NOT_FOUND)
-
-
-        serializer = MockInterviewQuestionSerializer(selected_questions, many=True)
+    def _generate_fallback(self, company_name, job_description, num_questions):
+        """Fallback method to generate questions when Gemini is not available"""
+        # Extract key skills/technologies from job description
+        common_keywords = ['python', 'java', 'javascript', 'react', 'node', 'sql', 'aws', 'docker', 'kubernetes', 'git']
+        found_skills = [skill for skill in common_keywords if skill.lower() in job_description.lower()]
+        
+        # Generic questions based on job description analysis
+        fallback_questions = [
+            {
+                "question_text": f"Tell me about your experience and why you're interested in working at {company_name}.",
+                "difficulty_level": "easy"
+            },
+            {
+                "question_text": "Describe a challenging project you've worked on and how you overcame the difficulties.",
+                "difficulty_level": "medium"
+            },
+            {
+                "question_text": "How do you stay updated with the latest industry trends and technologies?",
+                "difficulty_level": "easy"
+            },
+            {
+                "question_text": "Describe a time when you had to work with a difficult team member. How did you handle it?",
+                "difficulty_level": "medium"
+            },
+            {
+                "question_text": "What do you consider your greatest strength and weakness?",
+                "difficulty_level": "easy"
+            }
+        ]
+        
+        # Add skill-specific questions if skills are found
+        if found_skills:
+            skill_questions = [
+                {
+                    "question_text": f"How would you approach solving a complex problem using {found_skills[0]}?",
+                    "difficulty_level": "hard"
+                },
+                {
+                    "question_text": f"What are the best practices you follow when working with {found_skills[0] if found_skills else 'your preferred technology'}?",
+                    "difficulty_level": "medium"
+                }
+            ]
+            fallback_questions.extend(skill_questions)
+        
+        # Select the requested number of questions
+        selected_questions = fallback_questions[:num_questions]
+        
         return Response({
-            "company_name": company.company_name,
-            "role": role,
-            "questions": serializer.data
+            "company_name": company_name,
+            "questions": selected_questions,
+            "note": "Generated using fallback method. For AI-powered questions, please configure Gemini API."
         }, status=status.HTTP_200_OK)
+
+
+class EvaluateInterviewAnswersView(APIView):
+    def post(self, request, *args, **kwargs):
+        # Validate input using serializer
+        input_serializer = AnswerEvaluationInputSerializer(data=request.data)
+        if not input_serializer.is_valid():
+            return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        company_name = input_serializer.validated_data['company_name']
+        job_description = input_serializer.validated_data['job_description']
+        question_answers = input_serializer.validated_data['question_answers']
+
+        # Check if Gemini API is available
+        gemini_api_key = os.environ.get('GEMINI_API_KEY')
+        
+        if gemini_api_key:
+            try:
+                return self._evaluate_with_gemini(company_name, job_description, question_answers)
+            except Exception as e:
+                print(f"Gemini API error: {e}")
+                # Fall back to basic evaluation
+                return self._evaluate_fallback(company_name, job_description, question_answers)
+        else:
+            # Use fallback evaluation
+            return self._evaluate_fallback(company_name, job_description, question_answers)
+
+    def _evaluate_with_gemini(self, company_name, job_description, question_answers):
+        """Evaluate interview answers using Gemini AI"""
+        # Configure Gemini
+        genai.configure(api_key=os.environ.get('GEMINI_API_KEY'))
+        model = genai.GenerativeModel('gemini-2.0-flash')
+
+        evaluations = []
+        
+        for qa in question_answers:
+            question_text = qa.get('question_text', '')
+            user_answer = qa.get('user_answer', '')
+            difficulty_level = qa.get('difficulty_level', 'medium')
+            
+            if not user_answer.strip():
+                # Handle empty answers
+                evaluations.append({
+                    "question_text": question_text,
+                    "user_answer": "No answer provided",
+                    "score": 0,
+                    "strengths": [],
+                    "improvements": [
+                        "An answer was not provided for this question",
+                        "In a real interview, it's important to provide some response even if you're unsure"
+                    ],
+                    "suggestions": [
+                        "Practice thinking out loud and structuring your thoughts",
+                        "Even if unsure, explain your thought process",
+                        "Ask clarifying questions if needed"
+                    ],
+                    "overall_comment": "No response was provided. In interviews, it's better to give a thoughtful partial answer than no answer at all."
+                })
+                continue
+
+            # Create detailed evaluation prompt
+            prompt = f"""
+            You are an experienced technical interviewer evaluating a candidate's answer for a position at {company_name}.
+
+            Job Description Context:
+            {job_description}
+
+            Interview Question: {question_text}
+            Difficulty Level: {difficulty_level}
+            
+            Candidate's Answer: {user_answer}
+
+            Please evaluate this answer and provide detailed feedback in the following JSON format:
+            {{
+                "score": 8,
+                "strengths": [
+                    "Specific strength point 1",
+                    "Specific strength point 2"
+                ],
+                "improvements": [
+                    "Specific area for improvement 1",
+                    "Specific area for improvement 2"
+                ],
+                "suggestions": [
+                    "Actionable suggestion 1",
+                    "Actionable suggestion 2"
+                ],
+                "overall_comment": "A comprehensive comment about the answer quality, relevance, and interview performance"
+            }}
+
+            Evaluation Criteria:
+            1. Relevance to the question and job requirements
+            2. Technical accuracy (if applicable)
+            3. Communication clarity and structure
+            4. Use of specific examples or experiences
+            5. Demonstration of problem-solving skills
+            6. Cultural fit and soft skills demonstration
+            7. Overall professionalism and confidence
+
+            Score Range:
+            - 9-10: Exceptional answer, would strongly impress interviewers
+            - 7-8: Good answer with minor areas for improvement
+            - 5-6: Average answer, meets basic expectations
+            - 3-4: Below average, significant improvements needed
+            - 1-2: Poor answer, major concerns
+
+            Focus on constructive feedback that helps the candidate improve for future interviews.
+            """
+
+            try:
+                # Generate evaluation using Gemini
+                response = model.generate_content(prompt)
+                response_text = response.text.strip()
+                
+                # Clean and parse JSON response
+                if response_text.startswith('```json'):
+                    response_text = response_text[7:]
+                if response_text.endswith('```'):
+                    response_text = response_text[:-3]
+                
+                evaluation_data = json.loads(response_text.strip())
+                
+                # Add question and answer text to the evaluation
+                evaluation_data['question_text'] = question_text
+                evaluation_data['user_answer'] = user_answer
+                
+                evaluations.append(evaluation_data)
+                
+            except (json.JSONDecodeError, Exception) as e:
+                print(f"Error evaluating answer: {e}")
+                # Fallback evaluation for this specific answer
+                fallback_eval = self._create_fallback_evaluation(question_text, user_answer, difficulty_level)
+                evaluations.append(fallback_eval)
+
+        return Response({
+            "company_name": company_name,
+            "evaluations": evaluations,
+            "overall_summary": self._generate_overall_summary(evaluations)
+        }, status=status.HTTP_200_OK)
+
+    def _evaluate_fallback(self, company_name, job_description, question_answers):
+        """Fallback evaluation when Gemini is not available"""
+        evaluations = []
+        
+        for qa in question_answers:
+            question_text = qa.get('question_text', '')
+            user_answer = qa.get('user_answer', '')
+            difficulty_level = qa.get('difficulty_level', 'medium')
+            
+            evaluation = self._create_fallback_evaluation(question_text, user_answer, difficulty_level)
+            evaluations.append(evaluation)
+
+        return Response({
+            "company_name": company_name,
+            "evaluations": evaluations,
+            "overall_summary": self._generate_overall_summary(evaluations),
+            "note": "Generated using fallback method. For AI-powered evaluation, please configure Gemini API."
+        }, status=status.HTTP_200_OK)
+
+    def _create_fallback_evaluation(self, question_text, user_answer, difficulty_level):
+        """Create a basic evaluation when AI is not available"""
+        if not user_answer.strip():
+            return {
+                "question_text": question_text,
+                "user_answer": "No answer provided",
+                "score": 0,
+                "strengths": [],
+                "improvements": ["Answer not provided", "Practice thinking out loud"],
+                "suggestions": ["Prepare examples using STAR method", "Practice mock interviews"],
+                "overall_comment": "No response provided. Consider practicing your interview skills."
+            }
+        
+        # Basic scoring based on answer length and content
+        answer_length = len(user_answer.strip())
+        
+        if answer_length < 50:
+            score = 4
+            improvements = ["Answer could be more detailed", "Provide specific examples"]
+        elif answer_length < 150:
+            score = 6
+            improvements = ["Good start, could add more depth", "Consider using the STAR method"]
+        else:
+            score = 7
+            improvements = ["Well-detailed answer", "Minor refinements could help"]
+
+        return {
+            "question_text": question_text,
+            "user_answer": user_answer,
+            "score": score,
+            "strengths": [
+                "Provided a response to the question",
+                "Shows engagement with the interview process"
+            ],
+            "improvements": improvements,
+            "suggestions": [
+                "Practice with more specific examples",
+                "Structure answers using STAR method (Situation, Task, Action, Result)",
+                "Research the company culture and values"
+            ],
+            "overall_comment": f"This is a {difficulty_level} level question. Your answer shows good foundation, with room for improvement in detail and structure."
+        }
+
+    def _generate_overall_summary(self, evaluations):
+        """Generate an overall summary of the interview performance"""
+        if not evaluations:
+            return "No answers to evaluate."
+        
+        total_score = sum(eval.get('score', 0) for eval in evaluations)
+        avg_score = total_score / len(evaluations)
+        
+        if avg_score >= 8:
+            performance = "Excellent"
+            comment = "Strong interview performance with well-structured answers."
+        elif avg_score >= 6:
+            performance = "Good"
+            comment = "Solid interview performance with room for minor improvements."
+        elif avg_score >= 4:
+            performance = "Average"
+            comment = "Average performance. Focus on providing more detailed and structured answers."
+        else:
+            performance = "Needs Improvement"
+            comment = "Consider more practice with mock interviews and answer preparation."
+
+        return {
+            "average_score": round(avg_score, 1),
+            "performance_level": performance,
+            "total_questions": len(evaluations),
+            "summary_comment": comment
+        }
 
 
 class ResumeCheckerAPIView(APIView):
