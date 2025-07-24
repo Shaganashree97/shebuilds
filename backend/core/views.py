@@ -1,7 +1,11 @@
 from rest_framework import viewsets
 from rest_framework import filters
-from .models import Skill, LearningTopic, LearningResource, CompanyDrive, MockInterviewQuestion, DiscussionTopic, DiscussionPost 
-from .serializers import CompanyDriveSerializer, PrepPlanInputSerializer, LearningResourceSerializer, MockInterviewQuestionSerializer, MockInterviewInputSerializer, MockInterviewResponseSerializer, AnswerEvaluationInputSerializer, AnswerFeedbackSerializer, DiscussionTopicSerializer, DiscussionTopicListSerializer, DiscussionPostSerializer
+from rest_framework.decorators import permission_classes
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework_simplejwt.tokens import RefreshToken
+from django.contrib.auth.models import User
+from .models import Skill, LearningTopic, LearningResource, CompanyDrive, MockInterviewQuestion, DiscussionTopic, DiscussionPost, UserPreparationPlan, PlanProgress, ForumCategory
+from .serializers import CompanyDriveSerializer, PrepPlanInputSerializer, LearningResourceSerializer, MockInterviewQuestionSerializer, MockInterviewInputSerializer, MockInterviewResponseSerializer, AnswerEvaluationInputSerializer, AnswerFeedbackSerializer, DiscussionTopicSerializer, DiscussionTopicListSerializer, DiscussionPostSerializer, PlanProgressSerializer, UserPreparationPlanSerializer, PlanProgressDetailSerializer, UserRegistrationSerializer, UserLoginSerializer, UserSerializer, ForumCategorySerializer
 
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -9,6 +13,7 @@ from rest_framework import status
 from django.shortcuts import get_object_or_404
 from django.db.models import Q # Used for complex lookups
 from django.conf import settings
+from django.utils import timezone
 
 import re
 import io # To handle file in-memory
@@ -26,6 +31,71 @@ import google.generativeai as genai
 from elevenlabs import ElevenLabs
 
 
+# Authentication Views
+class UserRegistrationView(APIView):
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        serializer = UserRegistrationSerializer(data=request.data)
+        if serializer.is_valid():
+            user = serializer.save()
+            refresh = RefreshToken.for_user(user)
+            return Response({
+                'message': 'User registered successfully',
+                'user': UserSerializer(user).data,
+                'refresh': str(refresh),
+                'access': str(refresh.access_token),
+            }, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class UserLoginView(APIView):
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        serializer = UserLoginSerializer(data=request.data)
+        if serializer.is_valid():
+            user = serializer.validated_data['user']
+            refresh = RefreshToken.for_user(user)
+            return Response({
+                'message': 'Login successful',
+                'user': UserSerializer(user).data,
+                'refresh': str(refresh),
+                'access': str(refresh.access_token),
+            }, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class UserLogoutView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        try:
+            refresh_token = request.data["refresh"]
+            token = RefreshToken(refresh_token)
+            token.blacklist()
+            return Response({
+                'message': 'Logout successful'
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({
+                'error': 'Invalid token'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+class UserProfileView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        serializer = UserSerializer(request.user)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+    def put(self, request):
+        serializer = UserSerializer(request.user, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({
+                'message': 'Profile updated successfully',
+                'user': serializer.data
+            }, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class CompanyDriveViewSet(viewsets.ModelViewSet):
@@ -38,6 +108,8 @@ class CompanyDriveViewSet(viewsets.ModelViewSet):
 
 
 class PersonalizedPrepPlanView(APIView):
+    permission_classes = [IsAuthenticated]
+    
     def post(self, request, *args, **kwargs):
         # Use the input serializer to validate request data
         input_serializer = PrepPlanInputSerializer(data=request.data)
@@ -47,6 +119,12 @@ class PersonalizedPrepPlanView(APIView):
         preferred_role = input_serializer.validated_data.get('preferred_role', '').strip()
         job_description = input_serializer.validated_data.get('job_description', '').strip()
         academic_details = input_serializer.validated_data.get('academic_course_details', '').strip()
+        plan_name = input_serializer.validated_data.get('plan_name', '').strip()
+
+        # Generate plan name if not provided
+        if not plan_name:
+            target = preferred_role if preferred_role else "Job Application"
+            plan_name = f"Plan for {target} - {timezone.now().strftime('%Y-%m-%d %H:%M')}"
 
         # Check if Gemini API is available and configured
         gemini_api_key = os.environ.get('GEMINI_API_KEY')
@@ -54,16 +132,16 @@ class PersonalizedPrepPlanView(APIView):
         
         if gemini_api_key:
             try:
-                return self._generate_with_gemini(preferred_role, job_description, academic_details)
+                return self._generate_with_gemini(preferred_role, job_description, academic_details, plan_name, request.user)
             except Exception as e:
                 print(f"Gemini API error: {e}")
                 # Fall back to rule-based approach
-                return self._generate_fallback(preferred_role, job_description, academic_details)
+                return self._generate_fallback(preferred_role, job_description, academic_details, plan_name, request.user)
         else:
             # Use fallback rule-based approach
-            return self._generate_fallback(preferred_role, job_description, academic_details)
+            return self._generate_fallback(preferred_role, job_description, academic_details, plan_name, request.user)
 
-    def _generate_with_gemini(self, preferred_role, job_description, academic_details):
+    def _generate_with_gemini(self, preferred_role, job_description, academic_details, plan_name=None, user=None):
         """Generate preparation plan using Gemini API"""
         genai.configure(api_key=os.environ.get('GEMINI_API_KEY'))
         model = genai.GenerativeModel('gemini-2.0-flash')
@@ -76,6 +154,15 @@ class PersonalizedPrepPlanView(APIView):
         
         # Parse the Gemini response and structure it
         plan_details = self._parse_gemini_response(gemini_response, preferred_role, job_description)
+        
+        # Save plan to database
+        saved_plan = self._save_plan_to_database(
+            plan_details, preferred_role, job_description, academic_details, 
+            plan_name, user
+        )
+        
+        # Add plan_id to response
+        plan_details['plan_id'] = saved_plan.id
         
         return Response(plan_details, status=status.HTTP_200_OK)
 
@@ -193,7 +280,7 @@ class PersonalizedPrepPlanView(APIView):
         
         return LearningResourceSerializer(resources[:3], many=True).data
 
-    def _generate_fallback(self, preferred_role, job_description, academic_details):
+    def _generate_fallback(self, preferred_role, job_description, academic_details, plan_name=None, user=None):
         """Fallback rule-based approach when Gemini API is not available"""
         target_role = preferred_role if preferred_role else "Software Engineer"
         
@@ -267,6 +354,15 @@ class PersonalizedPrepPlanView(APIView):
             ]
         }
 
+        # Save plan to database
+        saved_plan = self._save_plan_to_database(
+            plan_details, preferred_role, job_description, academic_details, 
+            plan_name, user
+        )
+        
+        # Add plan_id to response
+        plan_details['plan_id'] = saved_plan.id
+
         return Response(plan_details, status=status.HTTP_200_OK)
 
     def _extract_skills_from_job_description(self, job_description):
@@ -313,7 +409,52 @@ class PersonalizedPrepPlanView(APIView):
         
         return list(dict.fromkeys(skills))  # Remove duplicates
 
+    def _save_plan_to_database(self, plan_details, preferred_role, job_description, academic_details, plan_name, user):
+        """Save the generated plan to database"""
+        # Determine input type
+        input_type = 'role' if preferred_role else 'job_description'
+        
+        # Count total topics for progress tracking
+        total_topics = sum(len(section.get('topics', [])) for section in plan_details.get('sections', []))
+        
+        # Create the preparation plan
+        plan = UserPreparationPlan.objects.create(
+            user=user,
+            plan_name=plan_name,
+            academic_details=academic_details,
+            input_type=input_type,
+            preferred_role=preferred_role if preferred_role else None,
+            job_description=job_description if job_description else None,
+            plan_data=plan_details,
+            total_topics=total_topics,
+            completed_topics=0,
+            progress_percentage=0.0
+        )
+        
+        # Create progress entries for each topic
+        for section in plan_details.get('sections', []):
+            skill_name = section.get('skill', '')
+            for topic in section.get('topics', []):
+                topic_name = topic.get('name', '')
+                topic_description = topic.get('description', '')
+                estimated_hours = topic.get('estimated_hours', 0)
+                
+                # Create or get the progress record
+                PlanProgress.objects.create(
+                    plan=plan,
+                    section_name=skill_name,
+                    topic_name=topic_name,
+                    topic_description=topic_description,
+                    is_completed=False,
+                    estimated_hours=float(estimated_hours) if estimated_hours else None
+                )
+        
+        return plan
+
+
 class GenerateMockInterviewView(APIView):
+    permission_classes = [IsAuthenticated]
+    
     def post(self, request, *args, **kwargs):
         # Validate input using serializer
         input_serializer = MockInterviewInputSerializer(data=request.data)
@@ -510,14 +651,25 @@ class GenerateMockInterviewView(APIView):
 
 class EvaluateInterviewAnswersView(APIView):
     def post(self, request, *args, **kwargs):
+        # Debug logging
+        print("=== EVALUATION REQUEST DEBUG ===")
+        print(f"Request data type: {type(request.data)}")
+        print(f"Request data: {request.data}")
+        
         # Validate input using serializer
         input_serializer = AnswerEvaluationInputSerializer(data=request.data)
         if not input_serializer.is_valid():
+            print(f"Serializer validation errors: {input_serializer.errors}")
             return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         company_name = input_serializer.validated_data['company_name']
         job_description = input_serializer.validated_data['job_description']
         question_answers = input_serializer.validated_data['question_answers']
+        
+        print(f"Successfully parsed - Company: {company_name}")
+        print(f"Successfully parsed - Job description length: {len(job_description)}")
+        print(f"Successfully parsed - Question answers count: {len(question_answers)}")
+        print("=== END EVALUATION DEBUG ===\n")
 
         # Check if Gemini API is available
         gemini_api_key = os.environ.get('GEMINI_API_KEY')
@@ -970,14 +1122,200 @@ class ResumeCheckerAPIView(APIView):
         return Response(response_data, status=status.HTTP_200_OK)
 
 
+# --- Preparation Plan Management Views ---
+
+class UserPreparationPlansView(APIView):
+    """View to list all preparation plans for a user"""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, *args, **kwargs):
+        plans = UserPreparationPlan.objects.filter(
+            user=request.user,
+            is_active=True
+        )
+        
+        plans_data = []
+        for plan in plans:
+            plan_data = {
+                'id': plan.id,
+                'plan_name': plan.plan_name,
+                'academic_details': plan.academic_details,
+                'input_type': plan.input_type,
+                'preferred_role': plan.preferred_role,
+                'job_description': plan.job_description,
+                'total_topics': plan.total_topics,
+                'completed_topics': plan.completed_topics,
+                'progress_percentage': plan.progress_percentage,
+                'created_at': plan.created_at,
+                'updated_at': plan.updated_at,
+                'last_accessed': plan.last_accessed,
+                'is_active': plan.is_active,
+                'summary': plan.plan_data.get('summary', '') if plan.plan_data else ''
+            }
+            plans_data.append(plan_data)
+        
+        return Response({
+            'plans': plans_data,
+            'total_plans': len(plans_data)
+        }, status=status.HTTP_200_OK)
+
+class PreparationPlanDetailView(APIView):
+    """View to get detailed information about a specific preparation plan"""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, plan_id, *args, **kwargs):
+        try:
+            plan = UserPreparationPlan.objects.get(id=plan_id, user=request.user, is_active=True)
+            
+            # Update last accessed time
+            plan.last_accessed = timezone.now()
+            plan.save()
+            
+            # Get progress details
+            progress_items = PlanProgress.objects.filter(plan=plan).order_by('section_name', 'topic_name')
+            progress_data = []
+            
+            for progress in progress_items:
+                progress_data.append({
+                    'id': progress.id,
+                    'section_name': progress.section_name,
+                    'topic_name': progress.topic_name,
+                    'topic_description': progress.topic_description,
+                    'is_completed': progress.is_completed,
+                    'completion_date': progress.completion_date,
+                    'estimated_hours': progress.estimated_hours,
+                    'actual_hours_spent': progress.actual_hours_spent,
+                    'user_notes': progress.user_notes,
+                    'difficulty_rating': progress.difficulty_rating,
+                    'created_at': progress.created_at,
+                    'updated_at': progress.updated_at
+                })
+            
+            plan_details = plan.plan_data.copy() if plan.plan_data else {}
+            plan_details.update({
+                'plan_id': plan.id,
+                'plan_name': plan.plan_name,
+                'academic_details': plan.academic_details,
+                'input_type': plan.input_type,
+                'preferred_role': plan.preferred_role,
+                'job_description': plan.job_description,
+                'total_topics': plan.total_topics,
+                'completed_topics': plan.completed_topics,
+                'progress_percentage': plan.progress_percentage,
+                'created_at': plan.created_at,
+                'updated_at': plan.updated_at,
+                'last_accessed': plan.last_accessed,
+                'is_active': plan.is_active,
+                'progress_details': progress_data
+            })
+            
+            return Response(plan_details, status=status.HTTP_200_OK)
+            
+        except UserPreparationPlan.DoesNotExist:
+            return Response({'error': 'Plan not found'}, status=status.HTTP_404_NOT_FOUND)
+
+class UpdateTopicProgressView(APIView):
+    """View to update progress on a specific topic"""
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request, *args, **kwargs):
+        serializer = PlanProgressSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        plan_id = serializer.validated_data['plan_id']
+        section_name = serializer.validated_data['section_name']
+        topic_name = serializer.validated_data['topic_name']
+        is_completed = serializer.validated_data['is_completed']
+        user_notes = serializer.validated_data.get('user_notes', '')
+        difficulty_rating = serializer.validated_data.get('difficulty_rating')
+        
+        try:
+            progress = PlanProgress.objects.get(
+                plan_id=plan_id,
+                section_name=section_name,
+                topic_name=topic_name
+            )
+            
+            # Ensure the plan belongs to the authenticated user
+            if progress.plan.user != request.user:
+                return Response({'error': 'You can only update your own plans'}, status=status.HTTP_403_FORBIDDEN)
+            
+            # Update progress
+            progress.is_completed = is_completed
+            progress.user_notes = user_notes
+            progress.difficulty_rating = difficulty_rating
+            
+            if is_completed and not progress.completion_date:
+                progress.completion_date = timezone.now()
+            elif not is_completed:
+                progress.completion_date = None
+            
+            progress.save()
+            
+            # Get updated plan data
+            plan = progress.plan
+            return Response({
+                'success': True,
+                'message': 'Progress updated successfully',
+                'plan_id': plan.id,
+                'total_topics': plan.total_topics,
+                'completed_topics': plan.completed_topics,
+                'progress_percentage': plan.progress_percentage
+            }, status=status.HTTP_200_OK)
+            
+        except PlanProgress.DoesNotExist:
+            return Response({'error': 'Progress record not found'}, status=status.HTTP_404_NOT_FOUND)
+
+class DeletePreparationPlanView(APIView):
+    """View to delete (deactivate) a preparation plan"""
+    permission_classes = [IsAuthenticated]
+    
+    def delete(self, request, plan_id, *args, **kwargs):
+        try:
+            plan = UserPreparationPlan.objects.get(id=plan_id, user=request.user)
+            plan.is_active = False
+            plan.save()
+            
+            return Response({
+                'success': True,
+                'message': 'Plan deleted successfully'
+            }, status=status.HTTP_200_OK)
+            
+        except UserPreparationPlan.DoesNotExist:
+            return Response({'error': 'Plan not found'}, status=status.HTTP_404_NOT_FOUND)
+
+
 # --- Collaborative Learning ---
+
+class ForumCategoryViewSet(viewsets.ModelViewSet):
+    """
+    API endpoint for managing forum categories.
+    Supports CRUD operations for forum categories and provides category statistics.
+    """
+    queryset = ForumCategory.objects.filter(is_active=True)
+    serializer_class = ForumCategorySerializer
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ['order', 'name', 'created_at']
+    ordering = ['order', 'name']
+    
+    def get_permissions(self):
+        """
+        Instantiates and returns the list of permissions that this view requires.
+        Allow public read access, but require authentication for write operations.
+        """
+        if self.action in ['list', 'retrieve']:
+            permission_classes = [AllowAny]
+        else:
+            permission_classes = [IsAuthenticated]
+        return [permission() for permission in permission_classes]
 
 class DiscussionTopicViewSet(viewsets.ModelViewSet):
     """
     API endpoint that allows discussion topics to be viewed or edited.
     Supports listing all topics, creating new topics, and retrieving a single topic with its posts.
     """
-    queryset = DiscussionTopic.objects.all()
+    queryset = DiscussionTopic.objects.filter(is_active=True)
     # Use different serializers for list and detail views for performance
     def get_serializer_class(self):
         if self.action == 'list':
@@ -985,8 +1323,46 @@ class DiscussionTopicViewSet(viewsets.ModelViewSet):
         return DiscussionTopicSerializer # Use detailed serializer for retrieve, create, update
 
     filter_backends = [filters.OrderingFilter, filters.SearchFilter]
-    ordering_fields = ['created_at', 'title']
-    search_fields = ['title', 'author_name', 'related_skill__name', 'related_company__company_name'] # Search across relevant fields
+    ordering_fields = ['created_at', 'last_activity', 'title', 'view_count']
+    ordering = ['-is_pinned', '-last_activity']  # Pinned topics first, then by activity
+    search_fields = ['title', 'content', 'author_name', 'related_skill__name', 'related_company__company_name', 'category__name']
+    
+    def get_permissions(self):
+        """
+        Instantiates and returns the list of permissions that this view requires.
+        Allow public read access, but require authentication for write operations.
+        """
+        if self.action in ['list', 'retrieve']:
+            permission_classes = [AllowAny]
+        else:
+            permission_classes = [IsAuthenticated]
+        return [permission() for permission in permission_classes]
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        category_id = self.request.query_params.get('category', None)
+        if category_id:
+            queryset = queryset.filter(category_id=category_id)
+        return queryset
+    
+    def retrieve(self, request, *args, **kwargs):
+        """Override retrieve to increment view count"""
+        instance = self.get_object()
+        # Increment view count
+        instance.view_count += 1
+        instance.save(update_fields=['view_count'])
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+    
+    def perform_create(self, serializer):
+        """Set author information when creating topic"""
+        if self.request.user.is_authenticated:
+            serializer.save(
+                author=self.request.user,
+                author_name=self.request.user.first_name or self.request.user.username
+            )
+        else:
+            serializer.save()
 
 
 class DiscussionPostViewSet(viewsets.ModelViewSet):
@@ -995,6 +1371,17 @@ class DiscussionPostViewSet(viewsets.ModelViewSet):
     Posts are nested under topics.
     """
     serializer_class = DiscussionPostSerializer
+
+    def get_permissions(self):
+        """
+        Instantiates and returns the list of permissions that this view requires.
+        Allow public read access, but require authentication for write operations.
+        """
+        if self.action in ['list', 'retrieve']:
+            permission_classes = [AllowAny]
+        else:
+            permission_classes = [IsAuthenticated]
+        return [permission() for permission in permission_classes]
 
     def get_queryset(self):
         # Retrieve posts only for the specific topic provided in the URL
@@ -1007,4 +1394,164 @@ class DiscussionPostViewSet(viewsets.ModelViewSet):
         # Automatically link the post to its parent topic
         topic_id = self.kwargs.get('topic_pk')
         topic = get_object_or_404(DiscussionTopic, pk=topic_id)
-        serializer.save(topic=topic) # Save the post with the correct topic
+        
+        # Check if topic is locked
+        if topic.is_locked:
+            raise serializers.ValidationError("Cannot post to a locked topic.")
+        
+        # Set author information
+        if self.request.user.is_authenticated:
+            serializer.save(
+                topic=topic,
+                author=self.request.user,
+                author_name=self.request.user.first_name or self.request.user.username
+            )
+        else:
+            serializer.save(topic=topic) # Save the post with the correct topic
+
+
+class AIChatbotView(APIView):
+    """
+    AI Chatbot endpoint that uses Gemini to answer user questions with platform context
+    """
+    permission_classes = [AllowAny]  # Allow both authenticated and anonymous users
+    
+    def post(self, request, *args, **kwargs):
+        user_message = request.data.get('message', '').strip()
+        user_id = request.data.get('user_id')  # Optional user context
+        
+        if not user_message:
+            return Response({
+                'error': 'Message is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check if Gemini API is available
+        gemini_api_key = os.environ.get('GEMINI_API_KEY')
+        
+        if not gemini_api_key:
+            return Response({
+                'response': "I'm currently unavailable. Please try again later or contact support.",
+                'error': 'AI service not configured'
+            }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        
+        try:
+            return self._generate_response_with_gemini(user_message, user_id)
+        except Exception as e:
+            print(f"Gemini API error in chatbot: {e}")
+            return Response({
+                'response': "I'm having trouble processing your request right now. Please try again in a moment.",
+                'error': 'AI service temporarily unavailable'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def _generate_response_with_gemini(self, user_message, user_id=None):
+        """Generate AI response using Gemini with platform context"""
+        genai.configure(api_key=os.environ.get('GEMINI_API_KEY'))
+        model = genai.GenerativeModel('gemini-2.0-flash')
+        
+        # Platform context
+        platform_context = self._get_platform_context()
+        
+        # User context (if available)
+        user_context = ""
+        if user_id:
+            user_context = self._get_user_context(user_id)
+        
+        # Create comprehensive prompt
+        prompt = f"""
+        You are an AI assistant for "Connect & Conquer", a comprehensive career preparation platform. 
+        
+        PLATFORM CONTEXT:
+        {platform_context}
+        
+        USER CONTEXT:
+        {user_context}
+        
+        USER QUESTION: {user_message}
+        
+        INSTRUCTIONS:
+        - Provide helpful, accurate, and relevant answers about the platform and career preparation
+        - Use the platform context to give specific guidance about available features
+        - If the user asks about features not mentioned in the context, acknowledge that and suggest they explore the platform
+        - Be friendly, professional, and encouraging
+        - Keep responses concise but informative (aim for 2-4 sentences)
+        - If asked about technical issues, guide them to relevant sections or suggest contacting support
+        - Always relate your answers back to career preparation and professional development when possible
+        
+        Respond as the platform's AI assistant:
+        """
+        
+        response = model.generate_content(prompt)
+        ai_response = response.text
+        
+        return Response({
+            'response': ai_response,
+            'timestamp': timezone.now().isoformat()
+        }, status=status.HTTP_200_OK)
+    
+    def _get_platform_context(self):
+        """Generate comprehensive platform context for the AI"""
+        return """
+        Connect & Conquer is a career preparation platform with the following features:
+        
+        1. PERSONALIZED PREPARATION PLANS:
+        - AI-generated study plans based on target roles or job descriptions
+        - Tracks progress with topics, skills, and time estimates
+        - Adaptive learning paths for different career goals
+        
+        2. MOCK INTERVIEWS:
+        - AI-generated interview questions based on job descriptions and companies
+        - Text-to-speech functionality for realistic practice
+        - Detailed answer evaluation and feedback
+        - Performance scoring and improvement suggestions
+        
+        3. RESUME OPTIMIZATION:
+        - ATS compatibility analysis
+        - Keyword matching against job descriptions
+        - Detailed improvement suggestions
+        - Formatting and structure recommendations
+        
+        4. DISCUSSION FORUMS:
+        - Real-time chat functionality
+        - Category-based discussions (Technical, Behavioral, Company-specific, etc.)
+        - Community-driven knowledge sharing
+        - Topic-based conversation threads
+        
+        5. COMPANY & JOB INFORMATION:
+        - Company drive listings and details
+        - Job search integration
+        - Industry-specific preparation guidance
+        
+        6. LEARNING RESOURCES:
+        - Curated educational content
+        - Skill-based learning materials
+        - Progress tracking and achievements
+        
+        The platform is designed to provide end-to-end career preparation support, from skill development to interview success.
+        """
+    
+    def _get_user_context(self, user_id):
+        """Get user-specific context if available"""
+        try:
+            from django.contrib.auth.models import User
+            user = User.objects.get(id=user_id)
+            
+            # Get user's recent activity
+            plans_count = UserPreparationPlan.objects.filter(user=user, is_active=True).count()
+            
+            context = f"""
+            User Information:
+            - Username: {user.username}
+            - Active preparation plans: {plans_count}
+            """
+            
+            # Add recent activity if available
+            recent_plan = UserPreparationPlan.objects.filter(user=user, is_active=True).first()
+            if recent_plan:
+                context += f"\n- Current focus: {recent_plan.preferred_role or 'General career preparation'}"
+                context += f"\n- Progress: {recent_plan.progress_percentage:.1f}% complete"
+            
+            return context
+            
+        except Exception as e:
+            print(f"Error getting user context: {e}")
+            return "User context not available"

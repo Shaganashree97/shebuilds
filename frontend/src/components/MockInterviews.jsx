@@ -1,9 +1,13 @@
-import React, { useState, useEffect } from 'react';
-import './MockInterviews.css'; // Will create this CSS file
+import React, { useState, useEffect, useRef } from 'react';
+import './MockInterviews.css';
+import authService from '../services/authService';
 
 const MockInterviews = () => {
+    // Form states
     const [companyName, setCompanyName] = useState('');
     const [jobDescription, setJobDescription] = useState('');
+    
+    // Interview states
     const [mockInterviewQuestions, setMockInterviewQuestions] = useState([]);
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
     const [userAnswers, setUserAnswers] = useState({});
@@ -11,52 +15,211 @@ const MockInterviews = () => {
     const [interviewFinished, setInterviewFinished] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
-    const [audioLoading, setAudioLoading] = useState(false);
+    
+    // Voice and video states
+    const [isRecording, setIsRecording] = useState(false);
+    const [isListening, setIsListening] = useState(false);
+    const [currentTranscript, setCurrentTranscript] = useState('');
+    const [webcamStream, setWebcamStream] = useState(null);
+    const [aiSpeaking, setAiSpeaking] = useState(false);
+    const [userCanSpeak, setUserCanSpeak] = useState(false);
+    const [showTextInput, setShowTextInput] = useState(false);
+    const [textAnswer, setTextAnswer] = useState('');
+    
+    // Chat conversation
+    const [conversation, setConversation] = useState([]);
+    
+    // Audio and evaluation states
     const [currentAudio, setCurrentAudio] = useState(null);
-    const [autoPlay, setAutoPlay] = useState(true);
     const [evaluationLoading, setEvaluationLoading] = useState(false);
     const [answerEvaluations, setAnswerEvaluations] = useState([]);
     const [overallSummary, setOverallSummary] = useState(null);
 
-    const API_BASE_URL = 'http://localhost:8000/api'; // Your Django API base URL
+    // Refs
+    const videoRef = useRef(null);
+    const mediaRecorderRef = useRef(null);
+    const speechRecognitionRef = useRef(null);
+    const conversationEndRef = useRef(null);
 
-    // Stop current audio when component unmounts
+    // Initialize speech recognition
     useEffect(() => {
-        return () => {
-            if (currentAudio) {
-                currentAudio.pause();
-                currentAudio.currentTime = 0;
+        const initializeSpeechRecognition = () => {
+            if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                speechRecognitionRef.current = new SpeechRecognition();
+                
+                // Configure speech recognition
+                speechRecognitionRef.current.continuous = false; // Changed to false for better stability
+                speechRecognitionRef.current.interimResults = true;
+                speechRecognitionRef.current.lang = 'en-US';
+                speechRecognitionRef.current.maxAlternatives = 1;
+
+                speechRecognitionRef.current.onstart = () => {
+                    setIsListening(true);
+                    setError(null); // Clear any previous errors
+                    console.log('Speech recognition started');
+                };
+
+                speechRecognitionRef.current.onresult = (event) => {
+                    let transcript = '';
+                    let finalTranscript = '';
+                    
+                    for (let i = event.resultIndex; i < event.results.length; i++) {
+                        const result = event.results[i];
+                        if (result.isFinal) {
+                            finalTranscript += result[0].transcript;
+                        } else {
+                            transcript += result[0].transcript;
+                        }
+                    }
+                    
+                    // Show interim results
+                    setCurrentTranscript(transcript || finalTranscript);
+                    
+                    // If we have final results, process them immediately
+                    if (finalTranscript.trim()) {
+                        setCurrentTranscript(finalTranscript);
+                        // Process the final transcript
+                        setTimeout(() => {
+                            handleVoiceAnswer(finalTranscript.trim());
+                        }, 500); // Small delay to ensure UI updates
+                    }
+                };
+
+                speechRecognitionRef.current.onend = () => {
+                    setIsListening(false);
+                    console.log('Speech recognition ended');
+                    
+                    // We'll handle the voice answer in the result handler for final results
+                    // This prevents issues with transcript state timing
+                };
+
+                speechRecognitionRef.current.onerror = (event) => {
+                    console.error('Speech recognition error:', event.error);
+                    setIsListening(false);
+                    
+                    let errorMessage = 'Speech recognition error. ';
+                    
+                    switch (event.error) {
+                        case 'network':
+                            errorMessage += 'Please check your internet connection and try again. You can also type your answer instead.';
+                            break;
+                        case 'not-allowed':
+                            errorMessage += 'Microphone access denied. Please allow microphone permissions and refresh the page.';
+                            break;
+                        case 'no-speech':
+                            errorMessage += 'No speech detected. Please speak clearly and try again.';
+                            break;
+                        case 'aborted':
+                            errorMessage += 'Speech recognition was stopped. Click "Start Recording" to try again.';
+                            break;
+                        case 'audio-capture':
+                            errorMessage += 'Microphone not found. Please check your microphone connection.';
+                            break;
+                        case 'service-not-allowed':
+                            errorMessage += 'Speech recognition service not available. Try typing your answer instead.';
+                            break;
+                        default:
+                            errorMessage += 'Please try again or type your answer instead.';
+                    }
+                    
+                    setError(errorMessage);
+                };
+            } else {
+                setError('Speech recognition not supported in this browser. Please use Chrome, Edge, or Safari with HTTPS.');
             }
         };
-    }, [currentAudio]);
 
-    // Auto-play question audio when question changes
-    useEffect(() => {
-        if (interviewStarted && currentQuestion && autoPlay) {
-            playQuestionAudio();
+        // Check if we're on HTTPS or localhost (required for speech recognition)
+        const isSecureContext = window.location.protocol === 'https:' || 
+                               window.location.hostname === 'localhost' || 
+                               window.location.hostname === '127.0.0.1';
+        
+        if (!isSecureContext) {
+            setError('Speech recognition requires HTTPS. Voice features may not work properly.');
         }
-    }, [currentQuestionIndex, interviewStarted]);
 
+        initializeSpeechRecognition();
+
+        return () => {
+            if (speechRecognitionRef.current) {
+                speechRecognitionRef.current.stop();
+            }
+        };
+    }, []);
+
+    // Auto-scroll conversation
+    useEffect(() => {
+        conversationEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [conversation]);
+
+    // Setup webcam
+    const setupWebcam = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { width: 640, height: 480 }, 
+                audio: false 
+            });
+            setWebcamStream(stream);
+            if (videoRef.current) {
+                videoRef.current.srcObject = stream;
+            }
+        } catch (error) {
+            console.error('Error accessing webcam:', error);
+            setError('Unable to access webcam. Please allow camera permissions.');
+        }
+    };
+
+    // Cleanup function
+    const cleanup = () => {
+        if (webcamStream) {
+            webcamStream.getTracks().forEach(track => track.stop());
+            setWebcamStream(null);
+        }
+        if (currentAudio) {
+            currentAudio.pause();
+            currentAudio.currentTime = 0;
+        }
+        if (speechRecognitionRef.current && speechRecognitionRef.current.abort) {
+            speechRecognitionRef.current.abort();
+        }
+        setIsRecording(false);
+        setIsListening(false);
+        setAiSpeaking(false);
+        setUserCanSpeak(false);
+        setCurrentTranscript('');
+        setShowTextInput(false);
+        setTextAnswer('');
+    };
+
+    // Start interview
     const startMockInterview = async () => {
         if (!companyName.trim() || !jobDescription.trim()) {
             setError("Please provide both company name and job description.");
             return;
         }
+
         setLoading(true);
         setError(null);
+        
+        // Reset states
         setMockInterviewQuestions([]);
         setCurrentQuestionIndex(0);
         setUserAnswers({});
         setInterviewFinished(false);
+        setConversation([]);
 
         try {
-            const response = await fetch(`${API_BASE_URL}/generate_mock_interview/`, {
+            // Setup webcam first
+            await setupWebcam();
+
+            // Generate interview questions
+            const response = await authService.makeAuthenticatedRequest('/generate_mock_interview/', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     company_name: companyName.trim(),
                     job_description: jobDescription.trim(),
-                    num_questions: 5 // Request 5 questions
+                    num_questions: 5
                 }),
             });
 
@@ -69,6 +232,19 @@ const MockInterviews = () => {
             if (data.questions && data.questions.length > 0) {
                 setMockInterviewQuestions(data.questions);
                 setInterviewStarted(true);
+                
+                // Add welcome message to conversation
+                setConversation([{
+                    id: Date.now(),
+                    type: 'ai',
+                    text: `Hello! I'm your AI interviewer for ${companyName}. We'll have a conversation about the role. Let's begin with our first question.`,
+                    timestamp: new Date()
+                }]);
+
+                // Start with first question after a delay
+                setTimeout(() => {
+                    askQuestion(0, data.questions);
+                }, 2000);
             } else {
                 setError("No mock interview questions were generated. Please try again with a different job description.");
                 setInterviewStarted(false);
@@ -82,126 +258,304 @@ const MockInterviews = () => {
         }
     };
 
-    const playQuestionAudio = async () => {
-        const currentQuestion = mockInterviewQuestions[currentQuestionIndex];
-        if (!currentQuestion) return;
+    // Ask a question (AI speaking)
+    const askQuestion = async (questionIndex, questions = mockInterviewQuestions) => {
+        const question = questions[questionIndex];
+        if (!question) return;
 
-        // Stop current audio if playing
-        if (currentAudio) {
-            currentAudio.pause();
-            currentAudio.currentTime = 0;
-        }
+        setAiSpeaking(true);
+        setUserCanSpeak(false);
+        setCurrentTranscript('');
 
-        setAudioLoading(true);
+        // Add question to conversation
+        const questionMessage = {
+            id: Date.now(),
+            type: 'ai',
+            text: question.question_text,
+            timestamp: new Date(),
+            questionNumber: questionIndex + 1
+        };
+
+        setConversation(prev => [...prev, questionMessage]);
+
         try {
-            // If audio_url is provided, use it directly
-            if (currentQuestion.audio_url) {
-                const audio = new Audio(currentQuestion.audio_url);
-                audio.onloadeddata = () => setAudioLoading(false);
-                audio.onerror = () => {
-                    setAudioLoading(false);
-                    console.error("Failed to load audio");
-                };
-                setCurrentAudio(audio);
-                await audio.play();
-            } 
-            // If audio_data is provided (base64), convert and play
-            else if (currentQuestion.audio_data) {
+            // Play question audio if available
+            if (question.audio_data) {
                 const audioBlob = new Blob([
-                    Uint8Array.from(atob(currentQuestion.audio_data), c => c.charCodeAt(0))
+                    Uint8Array.from(atob(question.audio_data), c => c.charCodeAt(0))
                 ], { type: 'audio/mpeg' });
                 const audioUrl = URL.createObjectURL(audioBlob);
                 const audio = new Audio(audioUrl);
-                audio.onloadeddata = () => setAudioLoading(false);
-                audio.onerror = () => {
-                    setAudioLoading(false);
-                    console.error("Failed to load audio");
-                };
-                audio.onended = () => URL.revokeObjectURL(audioUrl); // Clean up
+                
                 setCurrentAudio(audio);
+                
+                audio.onended = () => {
+                    setAiSpeaking(false);
+                    setUserCanSpeak(true);
+                    URL.revokeObjectURL(audioUrl);
+                    
+                    // Add instruction message
+                    setConversation(prev => [...prev, {
+                        id: Date.now() + 1,
+                        type: 'system',
+                        text: 'Click "Start Recording" to give your answer. Speak clearly and take your time.',
+                        timestamp: new Date()
+                    }]);
+                };
+                
+                audio.onerror = () => {
+                    setAiSpeaking(false);
+                    setUserCanSpeak(true);
+                    URL.revokeObjectURL(audioUrl);
+                };
+                
                 await audio.play();
             } else {
-                setAudioLoading(false);
-                console.warn("No audio data available for this question");
+                // If no audio, just wait a moment then allow user to speak
+                setTimeout(() => {
+                    setAiSpeaking(false);
+                    setUserCanSpeak(true);
+                    setConversation(prev => [...prev, {
+                        id: Date.now() + 1,
+                        type: 'system',
+                        text: 'Click "Start Recording" to give your answer. Speak clearly and take your time.',
+                        timestamp: new Date()
+                    }]);
+                }, 1000);
             }
         } catch (error) {
-            setAudioLoading(false);
-            console.error("Error playing audio:", error);
+            console.error('Error playing question audio:', error);
+            setAiSpeaking(false);
+            setUserCanSpeak(true);
         }
     };
 
-    const handleAnswerChange = (e) => {
-        setUserAnswers({
-            ...userAnswers,
-            [currentQuestionIndex]: e.target.value,
-        });
+    // Start voice recording
+    const startRecording = () => {
+        if (!userCanSpeak || aiSpeaking) {
+            return;
+        }
+
+        setCurrentTranscript('');
+        setIsRecording(true);
+        setError(null); // Clear any previous errors
+        
+        try {
+            if (speechRecognitionRef.current) {
+                speechRecognitionRef.current.start();
+            }
+        } catch (error) {
+            console.error('Failed to start speech recognition:', error);
+            setIsRecording(false);
+            setError('Failed to start voice recording. Please try the text input option instead.');
+            setShowTextInput(true);
+        }
     };
 
+    // Stop voice recording
+    const stopRecording = () => {
+        setIsRecording(false);
+        if (speechRecognitionRef.current) {
+            speechRecognitionRef.current.stop();
+        }
+    };
+
+    // Handle text input submission
+    const handleTextSubmit = () => {
+        if (!textAnswer.trim()) {
+            setError('Please enter your answer before submitting.');
+            return;
+        }
+
+        handleVoiceAnswer(textAnswer.trim());
+        setTextAnswer('');
+        setShowTextInput(false);
+    };
+
+    // Toggle between voice and text input
+    const toggleInputMode = () => {
+        if (isRecording) {
+            stopRecording();
+        }
+        setShowTextInput(!showTextInput);
+        setCurrentTranscript('');
+        setTextAnswer('');
+        setError(null);
+    };
+
+    // Handle voice answer
+    const handleVoiceAnswer = (transcript) => {
+        if (!transcript.trim()) return;
+
+        // Add user answer to conversation
+        const answerMessage = {
+            id: Date.now(),
+            type: 'user',
+            text: transcript,
+            timestamp: new Date()
+        };
+
+        setConversation(prev => [...prev, answerMessage]);
+
+        // Store the answer
+        setUserAnswers(prev => ({
+            ...prev,
+            [currentQuestionIndex]: transcript
+        }));
+
+        setCurrentTranscript('');
+        setUserCanSpeak(false);
+
+        // Move to next question or finish interview
+        setTimeout(() => {
+            if (currentQuestionIndex < mockInterviewQuestions.length - 1) {
+                setCurrentQuestionIndex(prev => prev + 1);
+                askQuestion(currentQuestionIndex + 1);
+            } else {
+                finishInterview();
+            }
+        }, 1500);
+    };
+
+    // Finish interview
+    const finishInterview = () => {
+        setInterviewFinished(true);
+        setInterviewStarted(false);
+        setAiSpeaking(false);
+        setUserCanSpeak(false);
+        cleanup();
+
+        // Add completion message
+        setConversation(prev => [...prev, {
+            id: Date.now(),
+            type: 'ai',
+            text: 'Thank you for completing the interview! I\'m now analyzing your responses and will provide detailed feedback shortly.',
+            timestamp: new Date()
+        }]);
+
+        // Evaluate answers
+        evaluateAnswers();
+    };
+
+    // Evaluate answers
     const evaluateAnswers = async () => {
         setEvaluationLoading(true);
         setError(null);
 
         try {
-            // Prepare the data for evaluation
-            const questionAnswers = mockInterviewQuestions.map((question, index) => ({
-                question_text: question.question_text,
-                difficulty_level: question.difficulty_level,
-                user_answer: userAnswers[index] || ""
-            }));
+            // Validate we have the required data
+            if (!companyName.trim() || !jobDescription.trim()) {
+                throw new Error("Company name and job description are required for evaluation.");
+            }
 
-            const response = await fetch(`${API_BASE_URL}/evaluate_interview_answers/`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
+            if (!mockInterviewQuestions || mockInterviewQuestions.length === 0) {
+                throw new Error("No interview questions available for evaluation.");
+            }
+
+            const questionAnswers = mockInterviewQuestions.map((question, index) => {
+                const answer = userAnswers[index];
+                
+                // Ensure all values are clean strings
+                const cleanedAnswer = {
+                    question_text: String(question.question_text || "").trim(),
+                    difficulty_level: String(question.difficulty_level || "medium").trim(),
+                    user_answer: String(answer || "").trim()
+                };
+
+                // Validate that we have the required fields
+                if (!cleanedAnswer.question_text) {
+                    throw new Error(`Question ${index + 1} is missing question text`);
+                }
+
+                return cleanedAnswer;
+            });
+
+            // Final validation of the request data
+            const requestData = {
                     company_name: companyName.trim(),
                     job_description: jobDescription.trim(),
                     question_answers: questionAnswers
-                }),
+            };
+
+            // Ensure no field is empty
+            if (!requestData.company_name) {
+                throw new Error("Company name cannot be empty");
+            }
+            if (!requestData.job_description) {
+                throw new Error("Job description cannot be empty");
+            }
+            if (requestData.question_answers.length === 0) {
+                throw new Error("No questions to evaluate");
+            }
+
+            console.log("Sending evaluation request with data:", requestData);
+
+            const response = await authService.makeAuthenticatedRequest('/evaluate_interview_answers/', {
+                method: 'POST',
+                body: JSON.stringify(requestData),
             });
 
             if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || errorData.detail || `HTTP error! status: ${response.status}`);
+                const errorData = await response.json().catch(() => ({}));
+                console.error("Evaluation API error:", response.status, errorData);
+                
+                if (response.status === 400) {
+                    throw new Error("Invalid request data. Please check your interview responses and try again.");
+                } else if (response.status === 401) {
+                    throw new Error("Authentication failed. Please refresh the page and try again.");
+                } else if (response.status === 500) {
+                    throw new Error("Server error during evaluation. Please try again later.");
+                } else {
+                    throw new Error(errorData.error || errorData.detail || `Request failed with status ${response.status}`);
+                }
             }
 
             const data = await response.json();
+            console.log("Evaluation response received:", data);
+            
             setAnswerEvaluations(data.evaluations || []);
             setOverallSummary(data.overall_summary || null);
 
         } catch (e) {
             console.error("Failed to evaluate answers:", e);
-            setError("Failed to evaluate your answers. You can still review your responses below.");
+            setError(e.message || "Failed to evaluate your answers. You can still review your responses below.");
         } finally {
             setEvaluationLoading(false);
         }
     };
 
-    const nextQuestion = () => {
-        // Stop current audio when moving to next question
-        if (currentAudio) {
-            currentAudio.pause();
-            currentAudio.currentTime = 0;
-        }
-
-        if (currentQuestionIndex < mockInterviewQuestions.length - 1) {
-            setCurrentQuestionIndex(currentQuestionIndex + 1);
-        } else {
-            setInterviewFinished(true);
-            setInterviewStarted(false); // End the interview session
-            // Evaluate answers when interview finishes
-            evaluateAnswers();
-        }
+    // Reset interview
+    const resetInterview = () => {
+        cleanup();
+        setInterviewFinished(false);
+        setInterviewStarted(false);
+        setCompanyName('');
+        setJobDescription('');
+        setMockInterviewQuestions([]);
+        setUserAnswers({});
+        setCurrentQuestionIndex(0);
+        setAnswerEvaluations([]);
+        setOverallSummary(null);
+        setEvaluationLoading(false);
+        setConversation([]);
+        setCurrentTranscript('');
+        setShowTextInput(false);
+        setTextAnswer('');
+        setError(null);
     };
 
     const currentQuestion = mockInterviewQuestions[currentQuestionIndex];
 
     return (
-        <div className="container">
-            <h2>🎤 AI Mock Interview Practice</h2>
-            <p className="subtitle">Practice with AI-generated questions and realistic interviewer voice</p>
+        <div className="voice-interview-container">
+            <div className="interview-header">
+                <h2>🎤 AI Voice Interview</h2>
+                <p className="subtitle">Interactive voice-based interview with real-time conversation</p>
+            </div>
 
             {!interviewStarted && !interviewFinished && (
                 <div className="interview-setup">
+                    <div className="setup-form">
                     <div className="form-group">
                         <label htmlFor="companyName">Company Name:</label>
                         <input
@@ -219,100 +573,219 @@ const MockInterviews = () => {
                             id="jobDescription"
                             value={jobDescription}
                             onChange={(e) => setJobDescription(e.target.value)}
-                            placeholder="Paste the complete job description here, including requirements, responsibilities, and qualifications..."
-                            rows="8"
+                                placeholder="Paste the complete job description here..."
+                                rows="6"
                             required
                         />
                     </div>
-                    <div className="form-group">
-                        <label className="checkbox-label">
-                            <input
-                                type="checkbox"
-                                checked={autoPlay}
-                                onChange={(e) => setAutoPlay(e.target.checked)}
-                            />
-                            Auto-play question audio (recommended for realistic experience)
-                        </label>
+                        <div className="browser-check">
+                            <p>📋 <strong>Requirements:</strong></p>
+                            <ul>
+                                <li>✅ Chrome, Edge, or Safari browser (for speech recognition)</li>
+                                <li>🎥 Camera access (for video)</li>
+                                <li>🎙️ Microphone access (for voice recording)</li>
+                                <li>🔒 HTTPS connection (required for voice features)</li>
+                                <li>🌐 Stable internet connection (for speech processing)</li>
+                            </ul>
+                            <p className="note">
+                                <strong>Note:</strong> If voice recognition doesn't work, you can always use the text input option during the interview.
+                            </p>
                     </div>
                     <button 
-                        className="start-interview-btn" 
+                            className="start-voice-interview-btn" 
                         onClick={startMockInterview} 
                         disabled={loading}
                     >
-                        {loading ? '🔄 Generating Interview...' : '🚀 Start AI Mock Interview'}
+                            {loading ? '🔄 Setting up Interview...' : '🚀 Start Voice Interview'}
                     </button>
                     {error && <div className="error-message">{error}</div>}
+                    </div>
                 </div>
             )}
 
-            {interviewStarted && currentQuestion && (
-                <div className="interview-session">
-                    <div className="progress-bar">
-                        <div 
-                            className="progress-fill" 
-                            style={{ width: `${((currentQuestionIndex + 1) / mockInterviewQuestions.length) * 100}%` }}
-                        ></div>
+            {interviewStarted && (
+                <div className="voice-interview-session">
+                    <div className="interview-main">
+                        {/* Left side - Video feeds */}
+                        <div className="video-section">
+                            <div className="user-video">
+                                <div className="video-container">
+                                    <video
+                                        ref={videoRef}
+                                        autoPlay
+                                        muted
+                                        playsInline
+                                        className="webcam-feed"
+                                    />
+                                    <div className="video-label">You</div>
+                                    {isRecording && (
+                                        <div className="recording-indicator">
+                                            🔴 Recording
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                            
+                            <div className="ai-video">
+                                <div className="ai-interviewer">
+                                    <div className={`ai-avatar ${aiSpeaking ? 'speaking' : ''}`}>
+                                        <div className="ai-face">
+                                            <div className="ai-eyes">
+                                                <div className="eye left-eye"></div>
+                                                <div className="eye right-eye"></div>
+                                            </div>
+                                            <div className="ai-mouth"></div>
+                                        </div>
+                                        {aiSpeaking && (
+                                            <div className="sound-waves">
+                                                <div className="wave"></div>
+                                                <div className="wave"></div>
+                                                <div className="wave"></div>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="video-label">AI Interviewer</div>
+                                    {aiSpeaking && (
+                                        <div className="speaking-indicator">
+                                            🗣️ Speaking
+                                        </div>
+                                    )}
+                                </div>
                     </div>
-                    <div className="question-header">
-                        <h3>Question {currentQuestionIndex + 1} of {mockInterviewQuestions.length}</h3>
-                        <span className="difficulty-badge difficulty-{currentQuestion.difficulty_level}">
-                            {currentQuestion.difficulty_level}
-                        </span>
+
+                            <div className="interview-controls">
+                                <div className="progress-info">
+                                    Question {currentQuestionIndex + 1} of {mockInterviewQuestions.length}
                     </div>
                     
-                    <div className="question-section">
-                        <div className="audio-controls">
+                                {userCanSpeak && !showTextInput && (
+                                    <div className="voice-controls">
+                                        {!isRecording && (
+                                            <button 
+                                                className="record-btn start-recording"
+                                                onClick={startRecording}
+                                            >
+                                                🎙️ Start Voice Recording
+                                            </button>
+                                        )}
+                                        
+                                        {isRecording && (
+                                            <button 
+                                                className="record-btn stop-recording"
+                                                onClick={stopRecording}
+                                            >
+                                                ⏹️ Stop Recording
+                                            </button>
+                                        )}
+                                        
+                                        <button 
+                                            className="toggle-input-btn"
+                                            onClick={toggleInputMode}
+                                        >
+                                            ⌨️ Use Text Input Instead
+                                        </button>
+                                    </div>
+                                )}
+
+                                {userCanSpeak && showTextInput && (
+                                    <div className="text-input-controls">
+                                        <textarea
+                                            className="text-answer-input"
+                                            value={textAnswer}
+                                            onChange={(e) => setTextAnswer(e.target.value)}
+                                            placeholder="Type your answer here..."
+                                            rows="4"
+                                        />
+                                        <div className="text-input-buttons">
+                                            <button 
+                                                className="submit-text-btn"
+                                                onClick={handleTextSubmit}
+                                                disabled={!textAnswer.trim()}
+                                            >
+                                                ✅ Submit Answer
+                                            </button>
                             <button 
-                                className="replay-btn" 
-                                onClick={playQuestionAudio}
-                                disabled={audioLoading}
+                                                className="toggle-input-btn"
+                                                onClick={toggleInputMode}
                             >
-                                {audioLoading ? '🔄' : '🔊'} 
-                                {audioLoading ? 'Loading...' : 'Play Question'}
+                                                🎙️ Try Voice Instead
                             </button>
-                            {currentAudio && (
-                                <span className="audio-status">
-                                    🎙️ Interviewer speaking...
-                                </span>
+                                        </div>
+                                    </div>
+                                )}
+                                
+                                {!userCanSpeak && !aiSpeaking && (
+                                    <div className="waiting-indicator">
+                                        <div className="spinner"></div>
+                                        Processing...
+                                    </div>
+                                )}
+
+                                {currentTranscript && !showTextInput && (
+                                    <div className="live-transcript">
+                                        <strong>You're saying:</strong> "{currentTranscript}"
+                                    </div>
+                                )}
+
+                                {error && (
+                                    <div className="error-message">
+                                        {error}
+                                    </div>
                             )}
                         </div>
-                        <div className="question-text-container">
-                            <p className="question-text">{currentQuestion.question_text}</p>
+                        </div>
+
+                        {/* Right side - Conversation */}
+                        <div className="conversation-section">
+                            <div className="conversation-header">
+                                <h3>💬 Interview Conversation</h3>
+                                <div className="interview-status">
+                                    {aiSpeaking && <span className="status-ai">🤖 AI Speaking</span>}
+                                    {userCanSpeak && <span className="status-user">🎙️ Your Turn</span>}
+                                    {isListening && <span className="status-listening">👂 Listening</span>}
                         </div>
                     </div>
 
-                    <div className="answer-section">
-                        <label htmlFor="answerTextarea">Your Answer:</label>
-                        <textarea
-                            id="answerTextarea"
-                            className="answer-textarea"
-                            placeholder="Think about your answer and type it here. Take your time..."
-                            value={userAnswers[currentQuestionIndex] || ''}
-                            onChange={handleAnswerChange}
-                            rows="8"
-                        ></textarea>
-                        <div className="answer-tips">
-                            💡 <strong>Tip:</strong> Use the STAR method (Situation, Task, Action, Result) for behavioral questions
+                            <div className="conversation-messages">
+                                {conversation.map((message) => (
+                                    <div 
+                                        key={message.id} 
+                                        className={`message ${message.type}`}
+                                    >
+                                        <div className="message-header">
+                                            <span className="sender">
+                                                {message.type === 'ai' ? '🤖 AI Interviewer' : 
+                                                 message.type === 'user' ? '👤 You' : '📋 System'}
+                                            </span>
+                                            <span className="timestamp">
+                                                {message.timestamp.toLocaleTimeString()}
+                                            </span>
+                                        </div>
+                                        <div className="message-content">
+                                            {message.questionNumber && (
+                                                <div className="question-number">
+                                                    Question {message.questionNumber}
+                                                </div>
+                                            )}
+                                            <p>{message.text}</p>
+                                        </div>
+                                    </div>
+                                ))}
+                                <div ref={conversationEndRef} />
+                            </div>
                         </div>
-                    </div>
-
-                    <div className="navigation-controls">
-                        <button className="next-question-btn" onClick={nextQuestion}>
-                            {currentQuestionIndex < mockInterviewQuestions.length - 1 ? 
-                                '➡️ Next Question' : '✅ Finish Interview'}
-                        </button>
                     </div>
                 </div>
             )}
 
             {interviewFinished && (
-                <div className="interview-summary">
-                    <h3>🎉 Interview Complete!</h3>
+                <div className="interview-results">
+                    <h3>🎉 Voice Interview Complete!</h3>
                     
                     {evaluationLoading && (
                         <div className="evaluation-loading">
                             <div className="loading-spinner">🤖</div>
-                            <p>AI is analyzing your answers...</p>
+                            <p>AI is analyzing your voice responses...</p>
                             <p className="loading-subtext">This may take a few moments</p>
                         </div>
                     )}
@@ -332,19 +805,12 @@ const MockInterviews = () => {
                                         </span>
                                     </div>
                                     <p className="performance-comment">{overallSummary.summary_comment}</p>
-                                    <p className="questions-completed">
-                                        Questions Answered: {overallSummary.total_questions}/{mockInterviewQuestions.length}
-                                    </p>
                                 </div>
                             </div>
                         </div>
                     )}
                     
-                    <div className="completion-stats">
-                        <p>🏢 Company: <strong>{companyName}</strong></p>
-                        <p>✅ Interview session completed successfully!</p>
-                    </div>
-
+                    {/* Rest of evaluation display remains the same */}
                     {!evaluationLoading && answerEvaluations.length > 0 && (
                         <>
                             <h4>📝 Detailed Answer Analysis:</h4>
@@ -354,9 +820,6 @@ const MockInterviews = () => {
                                         <div className="evaluation-header">
                                             <div className="question-info">
                                                 <span className="question-number">Q{idx + 1}</span>
-                                                <span className={`difficulty-badge difficulty-${evaluation.question_text && mockInterviewQuestions[idx] ? mockInterviewQuestions[idx].difficulty_level : 'medium'}`}>
-                                                    {mockInterviewQuestions[idx]?.difficulty_level || 'medium'}
-                                                </span>
                                             </div>
                                             <div className="score-badge">
                                                 <span className="score">{evaluation.score}/10</span>
@@ -368,13 +831,12 @@ const MockInterviews = () => {
                                         </div>
                                         
                                         <div className="user-answer-eval">
-                                            <strong>Your Answer:</strong>
+                                            <strong>Your Voice Answer:</strong>
                                             <p className="answer-text">
                                                 {evaluation.user_answer || "No answer provided"}
                                             </p>
                                         </div>
 
-                                        <div className="feedback-sections">
                                             {evaluation.strengths && evaluation.strengths.length > 0 && (
                                                 <div className="feedback-section strengths">
                                                     <h5>✅ Strengths</h5>
@@ -397,18 +859,6 @@ const MockInterviews = () => {
                                                 </div>
                                             )}
 
-                                            {evaluation.suggestions && evaluation.suggestions.length > 0 && (
-                                                <div className="feedback-section suggestions">
-                                                    <h5>💡 Suggestions</h5>
-                                                    <ul>
-                                                        {evaluation.suggestions.map((suggestion, sgIdx) => (
-                                                            <li key={sgIdx}>{suggestion}</li>
-                                                        ))}
-                                                    </ul>
-                                                </div>
-                                            )}
-                                        </div>
-
                                         {evaluation.overall_comment && (
                                             <div className="overall-comment">
                                                 <p><strong>Overall Feedback:</strong> {evaluation.overall_comment}</p>
@@ -419,40 +869,15 @@ const MockInterviews = () => {
                             </div>
                         </>
                     )}
-
-                    {!evaluationLoading && answerEvaluations.length === 0 && !error && (
-                        <div className="basic-summary">
-                            <h4>📝 Your Responses:</h4>
-                            <div className="answers-summary">
-                                {mockInterviewQuestions.map((q, idx) => (
-                                    <div key={idx} className="question-summary-item">
-                                        <div className="question-header-summary">
-                                            <span className="question-number">Q{idx + 1}</span>
-                                            <span className={`difficulty-badge difficulty-${q.difficulty_level}`}>
-                                                {q.difficulty_level}
-                                            </span>
-                                        </div>
-                                        <p className="question-text-summary">{q.question_text}</p>
-                                        <div className="answer-summary">
-                                            <strong>Your Answer:</strong>
-                                            <p className="user-answer">
-                                                {userAnswers[idx] || "No answer provided."}
-                                            </p>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
                     
                     <div className="next-steps">
-                        <h4>🚀 Next Steps for Improvement:</h4>
+                        <h4>🚀 Voice Interview Tips:</h4>
                         <ul>
-                            <li>Practice your answers out loud with a timer</li>
-                            <li>Research more about {companyName}'s culture and values</li>
-                            <li>Prepare specific examples using the STAR method</li>
-                            <li>Practice with different job descriptions and roles</li>
-                            <li>Record yourself answering to improve delivery and confidence</li>
+                            <li>Practice speaking clearly and at a moderate pace</li>
+                            <li>Use the STAR method when answering behavioral questions</li>
+                            <li>Maintain good posture and eye contact with the camera</li>
+                            <li>Practice in a quiet environment to improve speech recognition</li>
+                            <li>Take pauses to collect your thoughts - it's natural in interviews</li>
                         </ul>
                     </div>
 
@@ -461,24 +886,9 @@ const MockInterviews = () => {
                     <div className="action-buttons">
                         <button 
                             className="new-interview-btn"
-                            onClick={() => {
-                                setInterviewFinished(false);
-                                setInterviewStarted(false);
-                                setCompanyName('');
-                                setJobDescription('');
-                                setMockInterviewQuestions([]);
-                                setUserAnswers({});
-                                setCurrentQuestionIndex(0);
-                                setAnswerEvaluations([]);
-                                setOverallSummary(null);
-                                setEvaluationLoading(false);
-                                if (currentAudio) {
-                                    currentAudio.pause();
-                                    currentAudio.currentTime = 0;
-                                }
-                            }}
+                            onClick={resetInterview}
                         >
-                            🔄 Start New Interview
+                            🔄 Start New Voice Interview
                         </button>
                     </div>
                 </div>
