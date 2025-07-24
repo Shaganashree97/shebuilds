@@ -1,0 +1,104 @@
+/* frontend/src/components/PreparationPlan.css */
+.prep-form {
+    background-color: #f9f9f9;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    margin-bottom: 30px;
+}
+
+.form-group {
+    margin-bottom: 15px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+    color: #555;
+}
+
+.form-group input[type="text"],
+.form-group textarea {
+    width: calc(100% - 22px); /* Adjust for padding and border */
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    font-size: 16px;
+    color: #333; /* For dark mode text visibility */
+}
+
+.prep-form button {
+    background-color: #28a745; /* Green submit button */
+    color: white;
+    padding: 12px 20px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 18px;
+    transition: background-color 0.2s ease;
+}
+
+.prep-form button:hover:not(:disabled) {
+    background-color: #218838;
+}
+
+.prep-form button:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+}
+
+.plan-output {
+    background-color: #eaf7f7; /* Light blue-green background */
+    padding: 20px;
+    border-radius: 8px;
+    border: 1px solid #cceeee;
+    margin-top: 20px;
+}
+
+.plan-output h3 {
+    color: #007bff; /* Blue heading */
+    margin-top: 0;
+}
+
+.plan-output p {
+    margin-bottom: 10px;
+    line-height: 1.5;
+}
+
+.plan-section {
+    background-color: #f0fafa;
+    border: 1px solid #d4edda;
+    border-radius: 5px;
+    padding: 15px;
+    margin-bottom: 15px;
+}
+
+.plan-section h4 {
+    color: #28a745; /* Darker green for section heading */
+    margin-top: 0;
+    margin-bottom: 10px;
+}
+
+.plan-section ul {
+    list-style-type: disc;
+    padding-left: 20px;
+}
+
+.plan-section li {
+    margin-bottom: 5px;
+}
+
+.plan-section a {
+    color: #007bff;
+    text-decoration: none;
+}
+
+.plan-section a:hover {
+    text-decoration: underline;
+}
+
+.error-message {
+    font-weight: bold;
+    color: #dc3545; /* Red for errors */
+}

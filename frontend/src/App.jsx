@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import './index.css'; // Global styles
 import CompanyList from './components/CompanyList';
-// import PreparationPlan from './components/PreparationPlan'; // Will add later
+import PreparationPlan from './components/PreparationPlan'; // Import the new component
 // import MockInterviews from './components/MockInterviews'; // Will add later
 
 function App() {
-  const [activeModule, setActiveModule] = useState('companies'); // Initial active module
+  const [activeModule, setActiveModule] = useState('companies'); // 'companies', 'preparation', 'mock_interviews'
 
   return (
     <div className="App">
@@ -16,12 +16,12 @@ function App() {
                   style={{ backgroundColor: activeModule === 'companies' ? '#007bff' : '#3498db' }}>
             Company Drives
           </button>
-          {/* Add buttons for other modules here as you implement them */}
-          {/*
           <button onClick={() => setActiveModule('preparation')}
                   style={{ backgroundColor: activeModule === 'preparation' ? '#007bff' : '#3498db' }}>
             Personalized Prep
           </button>
+          {/* Add Mock Interviews button here later */}
+          {/*
           <button onClick={() => setActiveModule('mock_interviews')}
                   style={{ backgroundColor: activeModule === 'mock_interviews' ? '#007bff' : '#3498db' }}>
             Mock Interviews
@@ -31,9 +31,8 @@ function App() {
       </header>
       <main>
         {activeModule === 'companies' && <CompanyList />}
-        {/* Render other modules here conditionally */}
+        {activeModule === 'preparation' && <PreparationPlan />} {/* Render the PreparationPlan component */}
         {/*
-        {activeModule === 'preparation' && <PreparationPlan />}
         {activeModule === 'mock_interviews' && <MockInterviews />}
         */}
       </main>

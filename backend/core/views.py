@@ -1,7 +1,12 @@
 from rest_framework import viewsets
 from rest_framework import filters
-from .models import CompanyDrive
-from .serializers import CompanyDriveSerializer
+from .models import Skill, LearningTopic, LearningResource, CompanyDrive
+from .serializers import CompanyDriveSerializer, PrepPlanInputSerializer, SkillSerializer, LearningTopicSerializer, LearningResourceSerializer
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from django.db.models import Q # Used for complex lookups
 
 class CompanyDriveViewSet(viewsets.ModelViewSet):
     queryset = CompanyDrive.objects.all()
@@ -10,3 +15,94 @@ class CompanyDriveViewSet(viewsets.ModelViewSet):
     filter_backends = [filters.OrderingFilter, filters.SearchFilter]
     ordering_fields = ['drive_date'] # Allows ?ordering=drive_date or ?ordering=-drive_date
     search_fields = ['role', 'domain', 'company_name'] # Allows ?search=Software+Engineer
+
+
+class PersonalizedPrepPlanView(APIView):
+    def post(self, request, *args, **kwargs):
+        # Use the input serializer to validate request data
+        input_serializer = PrepPlanInputSerializer(data=request.data)
+        if not input_serializer.is_valid():
+            return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        preferred_role = input_serializer.validated_data.get('preferred_role', '').lower()
+        academic_details = input_serializer.validated_data.get('academic_course_details', '').lower()
+
+        # --- Hackathon Logic for Plan Generation ---
+        # This is a simplified, rule-based approach for the hackathon.
+        # In a real application, this would involve NLP, more sophisticated
+        # skill mapping, and potentially user performance data.
+
+        plan_details = {
+            "summary": f"Personalized plan for aspiring {preferred_role} based on your academic background.",
+            "sections": []
+        }
+
+        # 1. Infer Core Skills based on Preferred Role (Dummy Data Mapping)
+        # This should map preferred roles to a list of core skill names
+        role_to_skills_map = {
+            "software engineer": ["Data Structures & Algorithms", "Object-Oriented Programming", "Web Development Basics", "Database Management Systems", "Version Control (Git)"],
+            "data analyst": ["Statistics", "Python for Data Analysis", "SQL", "Data Visualization", "Excel"],
+            "machine learning engineer": ["Machine Learning Basics", "Deep Learning", "Python for Data Science", "Calculus & Linear Algebra"],
+            "front end developer": ["HTML/CSS", "JavaScript", "React.js Basics", "Responsive Design"],
+            "backend developer": ["Python (Django)", "Node.js (Express)", "APIs & Microservices", "Database Management Systems"],
+            # Add more specific roles as needed for your dummy data
+        }
+        
+        # Get relevant skills from the map, default to general if role not found
+        relevant_skill_names = role_to_skills_map.get(preferred_role, ["General Aptitude", "Basic Coding", "Communication"])
+
+        # 2. Adjust Skills based on Academic Details (Simple Keyword Matching)
+        # This is very basic; in a real app, use more robust NLP.
+        if "data structures" in academic_details or "algorithms" in academic_details or "dsa" in academic_details:
+            if "Data Structures & Algorithms" not in relevant_skill_names:
+                relevant_skill_names.append("Data Structures & Algorithms")
+        if "database" in academic_details or "sql" in academic_details or "dbms" in academic_details:
+            if "Database Management Systems" not in relevant_skill_names:
+                relevant_skill_names.append("Database Management Systems")
+        if "python" in academic_details and "data" in academic_details:
+             if "Python for Data Analysis" not in relevant_skill_names:
+                relevant_skill_names.append("Python for Data Analysis")
+        if "web" in academic_details and ("frontend" in academic_details or "react" in academic_details):
+             if "Web Development Basics" not in relevant_skill_names:
+                relevant_skill_names.append("Web Development Basics")
+        # Ensure unique skills and maintain order for a consistent plan
+        relevant_skill_names = list(dict.fromkeys(relevant_skill_names)) # Remove duplicates while preserving order
+
+        # 3. Fetch Learning Topics and Resources for inferred skills
+        sections = []
+        for skill_name in relevant_skill_names:
+            skill_obj = Skill.objects.filter(name=skill_name).first() # .first() to get an instance or None
+
+            topic_details = []
+            if skill_obj:
+                # Get topics related to this skill
+                topics = LearningTopic.objects.filter(related_skills=skill_obj).distinct()
+                for topic in topics:
+                    # Get resources associated with each topic
+                    resources_queryset = LearningResource.objects.filter(associated_topics=topic).distinct()
+                    resource_data = LearningResourceSerializer(resources_queryset, many=True).data
+                    topic_details.append({
+                        "name": topic.name,
+                        "description": topic.description,
+                        "resources": resource_data
+                    })
+            
+            # Add the skill and its topics/resources to the plan sections
+            sections.append({
+                "skill": skill_name,
+                "topics": topic_details
+            })
+
+        # 4. Basic Time Estimation (Hackathon Simplification)
+        # You could fetch the earliest upcoming drive date from CompanyDrive for more realistic remaining time.
+        # For simplicity, let's assume a general prep period.
+        total_weeks = 12 # Default total preparation period
+        time_breakdown = "Allocate time based on your current proficiency: prioritize weaker areas. Roughly 60% technical skills, 20% aptitude, 20% soft skills/behavioral."
+
+        plan_details["time_estimation"] = {
+            "total_weeks": total_weeks,
+            "breakdown": time_breakdown
+        }
+        plan_details["sections"] = sections
+
+        return Response(plan_details, status=status.HTTP_200_OK)
