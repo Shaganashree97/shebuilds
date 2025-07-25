@@ -141,6 +141,9 @@ code {
   display: flex;
   align-items: center;
 }
+input{
+  background-color: white;
+}
 
 .user-info {
   display: flex;

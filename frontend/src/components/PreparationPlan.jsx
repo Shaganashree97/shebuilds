@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import './PreparationPlan.css'; // Will create this CSS file
 import authService from '../services/authService';
 
 const PreparationPlan = () => {
     const location = useLocation();
+    const navigate = useNavigate();
     const [academicDetails, setAcademicDetails] = useState('');
     const [preferredRole, setPreferredRole] = useState('');
     const [jobDescription, setJobDescription] = useState('');
@@ -307,6 +308,61 @@ const PreparationPlan = () => {
         setAiError(null);
     };
 
+    const handleMockInterview = (planData) => {
+        // Create a comprehensive job description from the plan data
+        let interviewJobDescription = '';
+        
+        if (planData.input_type === 'role' && planData.preferred_role) {
+            // For role-based plans, create a generic job description
+            interviewJobDescription = `Position: ${planData.preferred_role}
+Company: Various Companies
+Location: Remote/On-site
+
+Job Description:
+We are looking for a qualified ${planData.preferred_role} to join our team. This role requires expertise in the following areas:
+
+Key Skills Required:
+${planData.sections ? planData.sections.map(section => `• ${section.skill}`).join('\n') : ''}
+
+Academic Background:
+${planData.academic_details || 'Relevant degree and experience required'}
+
+Plan Focus Areas:
+${planData.sections ? planData.sections.map(section => 
+    `• ${section.skill}: ${section.topics?.length || 0} topics to master`
+).join('\n') : ''}`;
+        } else if (planData.job_description) {
+            // For job description-based plans, use the original job description
+            interviewJobDescription = planData.job_description;
+        } else {
+            // Fallback for plans without detailed job info
+            interviewJobDescription = `Interview Preparation for: ${planData.plan_name}
+
+This mock interview is based on your preparation plan focusing on:
+${planData.sections ? planData.sections.map(section => `• ${section.skill}`).join('\n') : ''}
+
+Academic Background: ${planData.academic_details || 'As per your preparation plan'}`;
+        }
+
+        // Navigate to mock interview page with pre-filled data
+        navigate('/mock-interviews', {
+            state: {
+                prefillData: {
+                    companyName: planData.plan_name.includes(' at ') ? 
+                        planData.plan_name.split(' at ')[1] : 'Various Companies',
+                    jobDescription: interviewJobDescription,
+                    planContext: {
+                        planName: planData.plan_name,
+                        skillAreas: planData.sections?.map(s => s.skill) || [],
+                        totalTopics: planData.total_topics || 0,
+                        completedTopics: planData.completed_topics || 0,
+                        progressPercentage: planData.progress_percentage || 0
+                    }
+                }
+            }
+        });
+    };
+
     return (
         <div className="container">
             <div className="plan-header-section">
@@ -316,6 +372,7 @@ const PreparationPlan = () => {
                         type="button" 
                         className="management-btn"
                         onClick={() => setShowPlansList(!showPlansList)}
+                        style={{backgroundColor:"black"}}
                     >
                         📋 My Plans ({savedPlans.length})
                     </button>
@@ -494,7 +551,16 @@ const PreparationPlan = () => {
             {!showPlansList && plan && (
                         <div className="plan-output">
                             <div className="plan-header">
-                                <h3>🚀 Your Learning Roadmap</h3>
+                                <div className="plan-title-section">
+                                    <h3>🚀 Your Learning Roadmap</h3>
+                                    <button
+                                        className="mock-interview-btn"
+                                        onClick={() => handleMockInterview(plan)}
+                                        title="Start a mock interview based on this preparation plan"
+                                    >
+                                        🎤 Take Mock Interview
+                                    </button>
+                                </div>
                                 <div className="progress-circle">
                                     <div className="progress-text">{getCompletionPercentage()}%</div>
                                     <svg className="progress-svg" viewBox="0 0 100 100">

@@ -27,16 +27,50 @@
     margin-bottom: 2rem;
 }
 
-/* Interview Setup */
+/* Interview Setup Section */
 .interview-setup {
-    background: white;
-    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.95);
     padding: 2rem;
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
-    max-width: 600px;
-    margin: 0 auto;
+    border-radius: 20px;
+    margin-bottom: 2rem;
+    box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
+/* Prefill Notification for Mock Interview */
+.prefill-notification {
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: white;
+    padding: 1.5rem;
+    border-radius: 12px;
+    margin-bottom: 2rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(10px);
+}
+
+.prefill-notification .prefill-icon {
+    font-size: 2rem;
+    flex-shrink: 0;
+}
+
+.prefill-notification .prefill-content h4 {
+    margin: 0 0 0.5rem 0;
+    font-size: 1.2rem;
+    font-weight: 600;
+}
+
+.prefill-notification .prefill-content p {
+    margin: 0;
+    opacity: 0.9;
+    line-height: 1.4;
+}
+
+/* Setup Form */
 .setup-form .form-group {
     margin-bottom: 1.5rem;
 }
