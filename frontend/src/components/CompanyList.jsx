@@ -190,15 +190,15 @@ Employment Type: ${jobData.job_employment_type}`;
                             className="search-input"
                         />
                     </div>
-                    <button
+                    {/* <button
                         onClick={() => {
                             setFilteredSearch('');
                             setCurrentPage(1);
                         }}
                         className="clear-btn"
                     >
-                        ✕ Clear
-                    </button>
+                        ✕ 
+                    </button> */}
                 </div>
 
                 {/* Results Info */}

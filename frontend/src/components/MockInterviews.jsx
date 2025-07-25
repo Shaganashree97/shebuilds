@@ -797,7 +797,7 @@ useEffect(() => {
                     <div className="interview-main">
                         {/* Left side - Video feeds */}
                         <div className="video-section">
-                            <div className="user-video">
+                            {/* <div className="user-video">
                                 <div className="video-container">
                                     <video
                                         ref={videoRef}
@@ -815,7 +815,7 @@ useEffect(() => {
                                         </div>
                                     )}
                                 </div>
-                            </div>
+                            </div> */}
                             
                             <div className="ai-video">
                                 <div className="ai-interviewer">
