@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
+import ReactMarkdown from 'react-markdown';
 import './PreparationPlan.css'; // Will create this CSS file
 import authService from '../services/authService';
 
@@ -19,6 +20,13 @@ const PreparationPlan = () => {
     const [savedPlans, setSavedPlans] = useState([]);
     const [showPlansList, setShowPlansList] = useState(false);
     const [currentPlanId, setCurrentPlanId] = useState(null);
+    
+    // AI Topic Explainer states
+    const [aiModalOpen, setAiModalOpen] = useState(false);
+    const [currentAiTopic, setCurrentAiTopic] = useState(null);
+    const [aiExplanation, setAiExplanation] = useState('');
+    const [aiLoading, setAiLoading] = useState(false);
+    const [aiError, setAiError] = useState(null);
 
     // Handle prefilled data from CompanyList navigation
     useEffect(() => {
@@ -256,6 +264,47 @@ const PreparationPlan = () => {
         setCompletedTopics(new Set());
         setShowPlansList(false);
         setError(null);
+    };
+
+    const handleAskAI = async (topic, skillContext) => {
+        setCurrentAiTopic({ ...topic, skillContext });
+        setAiModalOpen(true);
+        setAiLoading(true);
+        setAiError(null);
+        setAiExplanation('');
+
+        try {
+            const response = await authService.makeAuthenticatedRequest('/ai_topic_explainer/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    topic_name: topic.name,
+                    topic_description: topic.description || '',
+                    skill_context: skillContext,
+                    user_level: 'intermediate' // Could be made dynamic based on user preference
+                })
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                setAiExplanation(data.explanation);
+            } else {
+                const errorData = await response.json();
+                setAiError(errorData.error || 'Failed to generate explanation');
+            }
+        } catch (error) {
+            console.error('Error getting AI explanation:', error);
+            setAiError('Failed to connect to AI service. Please try again.');
+        } finally {
+            setAiLoading(false);
+        }
+    };
+
+    const closeAiModal = () => {
+        setAiModalOpen(false);
+        setCurrentAiTopic(null);
+        setAiExplanation('');
+        setAiError(null);
     };
 
     return (
@@ -543,6 +592,13 @@ const PreparationPlan = () => {
                                                                     </span>
                                                                 )}
                                                             </div>
+                                                            <button
+                                                                className="ask-ai-btn"
+                                                                onClick={() => handleAskAI(topic, section.skill)}
+                                                                title="Get AI explanation of this topic"
+                                                            >
+                                                                🤖 Ask AI
+                                                            </button>
                                                         </div>
                                                         
                                                         {topic.resources && topic.resources.length > 0 && (
@@ -583,6 +639,56 @@ const PreparationPlan = () => {
                             </div>
                         </div>
                     )}
+
+            {/* AI Topic Explanation Modal */}
+            {aiModalOpen && (
+                <div className="ai-modal-overlay" onClick={closeAiModal}>
+                    <div className="ai-modal" onClick={(e) => e.stopPropagation()}>
+                        <div className="ai-modal-header">
+                            <h3>🤖 AI Explanation: {currentAiTopic?.name}</h3>
+                            <button className="ai-modal-close" onClick={closeAiModal}>✕</button>
+                        </div>
+                        
+                        <div className="ai-modal-content">
+                            {aiLoading && (
+                                <div className="ai-loading">
+                                    <div className="ai-spinner"></div>
+                                    <p>Generating explanation...</p>
+                                </div>
+                            )}
+                            
+                            {aiError && (
+                                <div className="ai-error">
+                                    <p>❌ {aiError}</p>
+                                    <button 
+                                        className="retry-btn"
+                                        onClick={() => handleAskAI(currentAiTopic, currentAiTopic.skillContext)}
+                                    >
+                                        🔄 Try Again
+                                    </button>
+                                </div>
+                            )}
+                            
+                            {aiExplanation && (
+                                <div className="ai-explanation">
+                                    <div className="topic-context">
+                                        <strong>Skill Area:</strong> {currentAiTopic?.skillContext}
+                                    </div>
+                                    <div className="explanation-content">
+                                        <ReactMarkdown>{aiExplanation}</ReactMarkdown>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                        
+                        <div className="ai-modal-footer">
+                            <button className="close-modal-btn" onClick={closeAiModal}>
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
