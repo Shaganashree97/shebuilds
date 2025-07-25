@@ -341,8 +341,10 @@
 .action-buttons {
     display: flex;
     gap: 0.75rem;
+    flex-wrap: wrap;
 }
 
+.prepare-btn,
 .company-website-btn,
 .apply-btn {
     padding: 0.5rem 1rem;
@@ -354,6 +356,20 @@
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
+    border: none;
+    cursor: pointer;
+}
+
+.prepare-btn {
+    background: linear-gradient(135deg, #e74c3c, #c0392b);
+    color: white;
+    box-shadow: 0 2px 4px rgba(231, 76, 60, 0.2);
+}
+
+.prepare-btn:hover {
+    background: linear-gradient(135deg, #c0392b, #a93226);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(231, 76, 60, 0.3);
 }
 
 .company-website-btn {

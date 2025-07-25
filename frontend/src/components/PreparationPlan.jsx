@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import './PreparationPlan.css'; // Will create this CSS file
 import authService from '../services/authService';
 
 const PreparationPlan = () => {
+    const location = useLocation();
     const [academicDetails, setAcademicDetails] = useState('');
     const [preferredRole, setPreferredRole] = useState('');
     const [jobDescription, setJobDescription] = useState('');
@@ -17,6 +19,24 @@ const PreparationPlan = () => {
     const [savedPlans, setSavedPlans] = useState([]);
     const [showPlansList, setShowPlansList] = useState(false);
     const [currentPlanId, setCurrentPlanId] = useState(null);
+
+    // Handle prefilled data from CompanyList navigation
+    useEffect(() => {
+        if (location.state?.prefillData) {
+            const { jobDescription: prefillJobDesc, companyName, jobTitle, jobLocation, inputType: prefillInputType } = location.state.prefillData;
+            
+            setJobDescription(prefillJobDesc);
+            setInputType(prefillInputType || 'job_description');
+            
+            // Set a default plan name based on the job
+            if (companyName && jobTitle) {
+                setPlanName(`${jobTitle} at ${companyName}`);
+            }
+            
+            // Clear the navigation state to prevent re-prefilling on re-renders
+            window.history.replaceState({}, document.title);
+        }
+    }, [location.state]);
 
     // Load saved plans on component mount
     useEffect(() => {
@@ -310,6 +330,16 @@ const PreparationPlan = () => {
 
             {!showPlansList && !currentPlanId && (
                 <>
+                    {location.state?.prefillData && (
+                        <div className="prefill-notification">
+                            <div className="prefill-icon">🎯</div>
+                            <div className="prefill-content">
+                                <h4>Job Details Pre-filled!</h4>
+                                <p>We've automatically filled in the job description from your selected position. You can modify it as needed.</p>
+                            </div>
+                        </div>
+                    )}
+                    
                     <form onSubmit={handleSubmit} className="prep-form">
                         <div className="form-group">
                             <label htmlFor="planName">📝 Plan Name (Optional):</label>
