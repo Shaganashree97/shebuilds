@@ -576,39 +576,75 @@
     backdrop-filter: blur(10px);
 }
 
-/* Plan Output */
+/* Plan Output Styling */
 .plan-output {
     background: rgba(255, 255, 255, 0.95);
     padding: 2rem;
     border-radius: 20px;
+    margin-bottom: 2rem;
     box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
     backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.2);
-    max-width: 100%;
-    width: 100%;
-    color: #2d3748;
 }
 
-/* Plan Header with Progress */
 .plan-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 2rem;
-    padding-bottom: 1rem;
-    border-bottom: 2px solid #e9ecef;
+    padding-bottom: 1.5rem;
+    border-bottom: 2px solid #e1e5e9;
 }
 
-.plan-header h3 {
+.plan-title-section {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    flex: 1;
+}
+
+.plan-title-section h3 {
     margin: 0;
-    color: #333;
-    font-size: 2rem;
+    color: #2d3748;
+    font-size: 1.8rem;
+    font-weight: 700;
 }
 
+/* Mock Interview Button */
+.mock-interview-btn {
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: white;
+    border: none;
+    padding: 0.75rem 1.25rem;
+    border-radius: 10px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(10px);
+}
+
+.mock-interview-btn:hover {
+    background: linear-gradient(135deg, #059669, #047857);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(16, 185, 129, 0.4);
+}
+
+.mock-interview-btn:active {
+    transform: translateY(0);
+}
+
+/* Progress Circle */
 .progress-circle {
     position: relative;
     width: 80px;
     height: 80px;
+    flex-shrink: 0;
 }
 
 .progress-svg {
@@ -1427,5 +1463,34 @@ p{
     .ask-ai-btn {
         font-size: 0.7rem;
         padding: 0.4rem 0.6rem;
+    }
+    
+    /* Plan Header Responsive */
+    .plan-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 1rem;
+    }
+    
+    .plan-title-section {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 1rem;
+        width: 100%;
+    }
+    
+    .plan-title-section h3 {
+        font-size: 1.5rem;
+    }
+    
+    .mock-interview-btn {
+        font-size: 0.9rem;
+        padding: 0.6rem 1rem;
+        width: 100%;
+        justify-content: center;
+    }
+    
+    .progress-circle {
+        align-self: center;
     }
 }

@@ -202,7 +202,7 @@ Employment Type: ${jobData.job_employment_type}`;
                 </div>
 
                 {/* Results Info */}
-                <div className="results-info">
+                <div className="results-info" style={{color:"white"}}>
                     <span>Showing {filteredCompanies.length} jobs on page {currentPage}</span>
                 </div>
             </div>

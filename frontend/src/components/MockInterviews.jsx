@@ -1,11 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import './MockInterviews.css';
 import authService from '../services/authService';
 
 const MockInterviews = () => {
+    const location = useLocation();
+    
     // Form states
     const [companyName, setCompanyName] = useState('');
     const [jobDescription, setJobDescription] = useState('');
+    const [planContext, setPlanContext] = useState(null); // Store preparation plan context
     
     // Interview states
     const [mockInterviewQuestions, setMockInterviewQuestions] = useState([]);
@@ -40,6 +44,20 @@ const MockInterviews = () => {
     const mediaRecorderRef = useRef(null);
     const speechRecognitionRef = useRef(null);
     const conversationEndRef = useRef(null);
+
+    // Handle prefilled data from PreparationPlan navigation
+    useEffect(() => {
+        if (location.state?.prefillData) {
+            const { companyName: prefillCompany, jobDescription: prefillJobDesc, planContext: prefillPlanContext } = location.state.prefillData;
+            
+            setCompanyName(prefillCompany || '');
+            setJobDescription(prefillJobDesc || '');
+            setPlanContext(prefillPlanContext || null);
+            
+            // Clear the navigation state to prevent re-prefilling on re-renders
+            window.history.replaceState({}, document.title);
+        }
+    }, [location.state]);
 
     // Initialize speech recognition
     useEffect(() => {
@@ -555,6 +573,19 @@ const MockInterviews = () => {
 
             {!interviewStarted && !interviewFinished && (
                 <div className="interview-setup">
+                    {planContext && (
+                        <div className="prefill-notification">
+                            <div className="prefill-icon">🎯</div>
+                            <div className="prefill-content">
+                                <h4>Interview Ready from Preparation Plan!</h4>
+                                <p>
+                                    Based on your "{planContext.planName}" plan covering {planContext.skillAreas?.length || 0} skill areas. 
+                                    Progress: {planContext.completedTopics || 0}/{planContext.totalTopics || 0} topics ({Math.round(planContext.progressPercentage || 0)}% complete).
+                                </p>
+                            </div>
+                        </div>
+                    )}
+                    
                     <div className="setup-form">
                     <div className="form-group">
                         <label htmlFor="companyName">Company Name:</label>
