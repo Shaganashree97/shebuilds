@@ -34,8 +34,13 @@ requests==2.32.4
 rsa==4.9.1
 sqlparse==0.5.3
 elevenlabs==2.8.0
+djangorestframework-simplejwt==5.5.1
+PyJWT==2.10.1
 tqdm==4.67.1
 typing-inspection==0.4.1
 typing_extensions==4.14.1
 uritemplate==4.2.0
 urllib3==2.5.0
+channels==4.0.0
+channels-redis==4.2.0
+redis==5.0.1
