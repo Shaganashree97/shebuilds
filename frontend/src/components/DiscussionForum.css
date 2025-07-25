@@ -195,6 +195,7 @@
     margin: 0;
     color: #718096;
     font-size: 1rem;
+    margin-right: 40px;
 }
 
 .create-topic-btn {
@@ -207,6 +208,8 @@
     cursor: pointer;
     transition: all 0.3s ease;
     font-size: 0.95rem;
+    align-self: end;
+    margin-right: 20px;
 }
 
 .create-topic-btn:hover {
