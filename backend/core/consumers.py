@@ -20,72 +20,70 @@ class DiscussionConsumer(AsyncWebsocketConsumer):
         try:
             logger.info("WebSocket connection attempt started")
             
-        self.topic_id = self.scope['url_route']['kwargs']['topic_id']
-        self.room_group_name = f'discussion_{self.topic_id}'
-        self.user = self.scope.get('user')
+            self.topic_id = self.scope['url_route']['kwargs']['topic_id']
+            self.room_group_name = f'discussion_{self.topic_id}'
+            self.user = self.scope.get('user')
             
             logger.info(f"Topic ID: {self.topic_id}, User: {self.user}")
         
-        # Accept connection regardless of authentication status
-        await self.accept()
+            # Accept connection regardless of authentication status
+            await self.accept()
             logger.info("WebSocket connection accepted")
         
-        # Join room group
-        await self.channel_layer.group_add(
-            self.room_group_name,
-            self.channel_name
-        )
+            # Join room group
+            await self.channel_layer.group_add(
+                self.room_group_name,
+                self.channel_name
+            )
             logger.info(f"Added to group: {self.room_group_name}")
         
-        # Send connection status
-        await self.send(text_data=json.dumps({
-            'type': 'connection_established',
-            'authenticated': self.user and self.user.is_authenticated,
-            'message': 'Connected to discussion'
-        }))
+            # Send connection status
+            await self.send(text_data=json.dumps({
+                'type': 'connection_established',
+                'authenticated': self.user and self.user.is_authenticated,
+                'message': 'Connected to discussion'
+            }))
             logger.info("Connection status sent")
         
-        # Send user join notification if authenticated
-        if self.user and self.user.is_authenticated:
-            await self.channel_layer.group_send(
-                self.room_group_name,
-                {
-                    'type': 'user_join',
-                    'user': self.user.first_name or self.user.username,
-                    'user_id': self.user.id,
-                    'timestamp': timezone.now().isoformat()
-                }
-            )
+            # Send user join notification if authenticated
+            if self.user and self.user.is_authenticated:
+                await self.channel_layer.group_send(
+                    self.room_group_name,
+                    {
+                        'type': 'user_join',
+                        'user': self.user.first_name or self.user.username,
+                        'user_id': self.user.id,
+                        'timestamp': timezone.now().isoformat()
+                    }
+                )
                 logger.info("User join notification sent")
-            
-            logger.info("WebSocket connection fully established")
-            
+                
         except Exception as e:
-            logger.error(f"Error in WebSocket connect: {e}", exc_info=True)
+            logger.error(f"Error in WebSocket connect: {e}")
             await self.close()
 
     async def disconnect(self, close_code):
         try:
             logger.info(f"WebSocket disconnecting with code: {close_code}")
             
-        # Send user leave notification
-        if hasattr(self, 'user') and self.user and self.user.is_authenticated:
-            await self.channel_layer.group_send(
-                self.room_group_name,
-                {
-                    'type': 'user_leave',
-                    'user': self.user.first_name or self.user.username,
-                    'user_id': self.user.id,
-                    'timestamp': timezone.now().isoformat()
-                }
-            )
+            # Send user leave notification
+            if hasattr(self, 'user') and self.user and self.user.is_authenticated:
+                await self.channel_layer.group_send(
+                    self.room_group_name,
+                    {
+                        'type': 'user_leave',
+                        'user': self.user.first_name or self.user.username,
+                        'user_id': self.user.id,
+                        'timestamp': timezone.now().isoformat()
+                    }
+                )
         
-        # Leave room group
+            # Leave room group
             if hasattr(self, 'room_group_name'):
-        await self.channel_layer.group_discard(
-            self.room_group_name,
-            self.channel_name
-        )
+                await self.channel_layer.group_discard(
+                    self.room_group_name,
+                    self.channel_name
+                )
                 
             logger.info("WebSocket disconnection completed")
             
@@ -148,7 +146,8 @@ class DiscussionConsumer(AsyncWebsocketConsumer):
                     'author_name': post['author_name'],
                     'author_id': self.user.id if self.user and self.user.is_authenticated else None,
                     'created_at': post['created_at'],
-                    'timestamp': timezone.now().isoformat()
+                    'timestamp': timezone.now().isoformat(),
+                    'sender_channel': self.channel_name # Add sender_channel to event
                 }
             )
         else:
@@ -220,7 +219,16 @@ class DiscussionConsumer(AsyncWebsocketConsumer):
 
     # WebSocket message handlers
     async def chat_message_broadcast(self, event):
-        """Send chat message to WebSocket"""
+        """Send chat message to WebSocket (excluding sender)"""
+        # Don't send the message back to the sender to avoid duplicates
+        sender_channel = event.get('sender_channel')
+        logger.debug(f"Broadcasting message. Sender channel: {sender_channel}, Current channel: {self.channel_name}")
+        
+        if sender_channel == self.channel_name:
+            logger.debug("Skipping message broadcast to sender to prevent duplicate")
+            return
+            
+        logger.debug("Broadcasting message to non-sender")
         await self.send(text_data=json.dumps({
             'type': 'chat_message',
             'post_id': event['post_id'],

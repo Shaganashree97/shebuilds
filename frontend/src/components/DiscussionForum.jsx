@@ -8,14 +8,25 @@ const WS_BASE_URL = 'ws://localhost:8000/ws';
 // WebSocket Hook for Real-time Communication
 const useWebSocket = (url, onMessage) => {
     const ws = useRef(null);
+    const onMessageRef = useRef(onMessage);
     const [connectionStatus, setConnectionStatus] = useState('Connecting');
     const [authenticated, setAuthenticated] = useState(false);
     const reconnectTimeoutRef = useRef(null);
     const reconnectAttemptsRef = useRef(0);
     const maxReconnectAttempts = 3;
 
+    // Update the ref when onMessage changes
+    useEffect(() => {
+        onMessageRef.current = onMessage;
+    }, [onMessage]);
+
     const connect = useCallback(() => {
         if (!url) return;
+
+        // Close existing connection if any
+        if (ws.current && ws.current.readyState !== WebSocket.CLOSED) {
+            ws.current.close();
+        }
 
         try {
             // Don't send token in URL to avoid authentication issues
@@ -56,7 +67,8 @@ const useWebSocket = (url, onMessage) => {
                         return;
                     }
                     
-                    onMessage(data);
+                    // Use the ref to call the latest onMessage callback
+                    onMessageRef.current(data);
                 } catch (error) {
                     console.error('Error parsing WebSocket message:', error);
                 }
@@ -65,7 +77,7 @@ const useWebSocket = (url, onMessage) => {
             console.error('WebSocket connection failed:', error);
             setConnectionStatus('Error');
         }
-    }, [url, onMessage]);
+    }, [url]); // Removed onMessage from dependencies
 
     useEffect(() => {
         connect();
@@ -114,6 +126,7 @@ const TopicChat = ({ topic, onBackToCategory }) => {
         if (topic.posts) {
             const chatMessages = topic.posts.map(post => ({
                 id: post.id,
+                post_id: post.id, // Add post_id for deduplication consistency
                 type: 'chat_message',
                 content: post.content,
                 author_name: post.author_name,
@@ -127,7 +140,15 @@ const TopicChat = ({ topic, onBackToCategory }) => {
     const handleWebSocketMessage = (data) => {
         switch (data.type) {
             case 'chat_message':
-                setMessages(prev => [...prev, data]);
+                // Prevent duplicate messages by checking if message already exists
+                setMessages(prev => {
+                    const messageExists = prev.some(msg => msg.post_id === data.post_id || msg.id === data.post_id);
+                    if (messageExists) {
+                        console.log('Duplicate message detected, skipping:', data.post_id);
+                        return prev;
+                    }
+                    return [...prev, data];
+                });
                 break;
             case 'typing':
                 setTypingUsers(prev => {
@@ -170,6 +191,20 @@ const TopicChat = ({ topic, onBackToCategory }) => {
         });
 
         if (sent) {
+            // Optimistic UI update for sender (since backend excludes sender from broadcast)
+            const optimisticMessage = {
+                id: `temp-${Date.now()}`, // Temporary ID
+                post_id: `temp-${Date.now()}`, // Use same temp ID for deduplication
+                type: 'chat_message',
+                content: messageContent,
+                author_name: currentUser.first_name || currentUser.username,
+                author_id: currentUser.id,
+                created_at: new Date().toISOString(),
+                timestamp: new Date().toISOString(),
+                isOptimistic: true // Flag to identify optimistic messages
+            };
+            
+            setMessages(prev => [...prev, optimisticMessage]);
             setNewMessage('');
             
             // Stop typing notification
@@ -194,6 +229,7 @@ const TopicChat = ({ topic, onBackToCategory }) => {
                     // Add message to local state
                     setMessages(prev => [...prev, {
                         id: newPost.id,
+                        post_id: newPost.id,
                         type: 'chat_message',
                         content: newPost.content,
                         author_name: newPost.author_name,
@@ -256,17 +292,17 @@ const TopicChat = ({ topic, onBackToCategory }) => {
                 <div className="topic-info">
                     <h3>{topic.title}</h3>
                     <div className="topic-meta">
-                        <span className="category-badge" style={{ backgroundColor: topic.category_color }}>
+                        <span className="category-badge" style={{ backgroundColor: topic.category_color,color:"white" }}>
                             {topic.category_icon} {topic.category_name}
                         </span>
-                        <span className={`connection-status status-${connectionStatus.toLowerCase()}`}>
+                        <span className={`connection-status status-${connectionStatus.toLowerCase()}`} style={{color:"white"}}>
                             {connectionStatus === 'Connected' ? '🟢 Real-time' : 
                              connectionStatus === 'Error' ? '🟡 HTTP mode' : 
                              '🔴 Connecting...'}
                         </span>
                     </div>
                 </div>
-                <div className="online-users">
+                {/* <div className="online-users">
                     <span className="online-count">{onlineUsers.length} online</span>
                     <div className="user-list">
                         {onlineUsers.map(user => (
@@ -275,7 +311,7 @@ const TopicChat = ({ topic, onBackToCategory }) => {
                             </div>
                         ))}
                     </div>
-                </div>
+                </div> */}
             </div>
 
             {/* Messages Area */}
