@@ -45,6 +45,10 @@ const MockInterviews = () => {
     const speechRecognitionRef = useRef(null);
     const conversationEndRef = useRef(null);
 
+    const [speechRetryCount, setSpeechRetryCount] = useState(0);
+const [speechReady, setSpeechReady] = useState(false);
+const MAX_RETRY_ATTEMPTS = 3;
+
     // Handle prefilled data from PreparationPlan navigation
     useEffect(() => {
         if (location.state?.prefillData) {
@@ -61,110 +65,258 @@ const MockInterviews = () => {
 
     // Initialize speech recognition
     useEffect(() => {
-        const initializeSpeechRecognition = () => {
-            if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-                speechRecognitionRef.current = new SpeechRecognition();
+    const initializeSpeechRecognition = () => {
+        if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            speechRecognitionRef.current = new SpeechRecognition();
+            
+            // Safe configuration - only set supported properties
+            speechRecognitionRef.current.continuous = false;
+            speechRecognitionRef.current.interimResults = true;
+            speechRecognitionRef.current.lang = 'en-US';
+            speechRecognitionRef.current.maxAlternatives = 1;
+
+            speechRecognitionRef.current.onstart = () => {
+                setIsListening(true);
+                setError(null);
+                console.log('Speech recognition started successfully');
+            };
+
+            speechRecognitionRef.current.onresult = (event) => {
+                let transcript = '';
+                let finalTranscript = '';
                 
-                // Configure speech recognition
-                speechRecognitionRef.current.continuous = false; // Changed to false for better stability
-                speechRecognitionRef.current.interimResults = true;
-                speechRecognitionRef.current.lang = 'en-US';
-                speechRecognitionRef.current.maxAlternatives = 1;
-
-                speechRecognitionRef.current.onstart = () => {
-                    setIsListening(true);
-                    setError(null); // Clear any previous errors
-                    console.log('Speech recognition started');
-                };
-
-                speechRecognitionRef.current.onresult = (event) => {
-                    let transcript = '';
-                    let finalTranscript = '';
-                    
-                    for (let i = event.resultIndex; i < event.results.length; i++) {
-                        const result = event.results[i];
-                        if (result.isFinal) {
-                            finalTranscript += result[0].transcript;
-                        } else {
-                            transcript += result[0].transcript;
-                        }
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    const result = event.results[i];
+                    if (result.isFinal) {
+                        finalTranscript += result[0].transcript;
+                    } else {
+                        transcript += result[0].transcript;
                     }
-                    
-                    // Show interim results
-                    setCurrentTranscript(transcript || finalTranscript);
-                    
-                    // If we have final results, process them immediately
-                    if (finalTranscript.trim()) {
-                        setCurrentTranscript(finalTranscript);
-                        // Process the final transcript
-                        setTimeout(() => {
-                            handleVoiceAnswer(finalTranscript.trim());
-                        }, 500); // Small delay to ensure UI updates
-                    }
-                };
+                }
+                
+                setCurrentTranscript(transcript || finalTranscript);
+                
+                if (finalTranscript.trim()) {
+                    setCurrentTranscript(finalTranscript);
+                    setTimeout(() => {
+                        handleVoiceAnswer(finalTranscript.trim());
+                    }, 500);
+                }
+            };
 
-                speechRecognitionRef.current.onend = () => {
-                    setIsListening(false);
-                    console.log('Speech recognition ended');
-                    
-                    // We'll handle the voice answer in the result handler for final results
-                    // This prevents issues with transcript state timing
-                };
+            speechRecognitionRef.current.onend = () => {
+                setIsListening(false);
+                console.log('Speech recognition ended');
+            };
 
-                speechRecognitionRef.current.onerror = (event) => {
-                    console.error('Speech recognition error:', event.error);
-                    setIsListening(false);
-                    
-                    let errorMessage = 'Speech recognition error. ';
-                    
-                    switch (event.error) {
-                        case 'network':
-                            errorMessage += 'Please check your internet connection and try again. You can also type your answer instead.';
-                            break;
-                        case 'not-allowed':
-                            errorMessage += 'Microphone access denied. Please allow microphone permissions and refresh the page.';
-                            break;
-                        case 'no-speech':
-                            errorMessage += 'No speech detected. Please speak clearly and try again.';
-                            break;
-                        case 'aborted':
-                            errorMessage += 'Speech recognition was stopped. Click "Start Recording" to try again.';
-                            break;
-                        case 'audio-capture':
-                            errorMessage += 'Microphone not found. Please check your microphone connection.';
-                            break;
-                        case 'service-not-allowed':
-                            errorMessage += 'Speech recognition service not available. Try typing your answer instead.';
-                            break;
-                        default:
-                            errorMessage += 'Please try again or type your answer instead.';
-                    }
-                    
-                    setError(errorMessage);
-                };
-            } else {
-                setError('Speech recognition not supported in this browser. Please use Chrome, Edge, or Safari with HTTPS.');
-            }
-        };
-
-        // Check if we're on HTTPS or localhost (required for speech recognition)
-        const isSecureContext = window.location.protocol === 'https:' || 
-                               window.location.hostname === 'localhost' || 
-                               window.location.hostname === '127.0.0.1';
-        
-        if (!isSecureContext) {
-            setError('Speech recognition requires HTTPS. Voice features may not work properly.');
+            speechRecognitionRef.current.onerror = (event) => {
+                console.error('Speech recognition error:', event.error);
+                setIsListening(false);
+                setIsRecording(false);
+                
+                let errorMessage = '';
+                
+                switch (event.error) {
+                    case 'network':
+                        errorMessage = 'Network connection issue. Please check your internet connection and try again, or use text input instead.';
+                        setShowTextInput(true);
+                        break;
+                    case 'not-allowed':
+                        errorMessage = 'Microphone access denied. Please allow microphone permissions and refresh the page.';
+                        break;
+                    case 'no-speech':
+                        errorMessage = 'No speech detected. Please speak clearly and try again.';
+                        break;
+                    case 'aborted':
+                        errorMessage = 'Speech recognition was stopped. Click "Start Recording" to try again.';
+                        break;
+                    case 'audio-capture':
+                        errorMessage = 'Microphone not found. Please check your microphone connection.';
+                        break;
+                    case 'service-not-allowed':
+                        errorMessage = 'Speech recognition service not available. Try typing your answer instead.';
+                        setShowTextInput(true);
+                        break;
+                    default:
+                        errorMessage = `Speech recognition error: ${event.error}. Please try text input instead.`;
+                        setShowTextInput(true);
+                }
+                
+                setError(errorMessage);
+            };
+        } else {
+            setError('Speech recognition not supported in this browser. Please use Chrome, Edge, or Safari.');
+            setShowTextInput(true);
         }
+    };
 
+    // Check if we're in a secure context
+    const isSecureContext = window.location.protocol === 'https:' || 
+                           window.location.hostname === 'localhost' || 
+                           window.location.hostname === '127.0.0.1';
+    
+    if (!isSecureContext) {
+        setError('Speech recognition requires HTTPS. Using text input mode.');
+        setShowTextInput(true);
+    } else {
         initializeSpeechRecognition();
+    }
 
         return () => {
-            if (speechRecognitionRef.current) {
+        if (speechRecognitionRef.current) {
+            try {
                 speechRecognitionRef.current.stop();
+            } catch (e) {
+                console.log('Speech recognition cleanup error:', e);
             }
-        };
-    }, []);
+        }
+    };
+}, []);
+
+// CORRECTED startRecording function
+const startRecording = () => {
+    if (!userCanSpeak || aiSpeaking) return;
+
+    setCurrentTranscript('');
+    setIsRecording(true);
+    setError(null);
+    
+    try {
+        if (speechRecognitionRef.current) {
+            speechRecognitionRef.current.start();
+        }
+    } catch (error) {
+        console.error('Failed to start speech recognition:', error);
+        setIsRecording(false);
+        
+        if (error.name === 'InvalidStateError') {
+            setError('Speech recognition is already running. Please wait and try again.');
+        } else {
+            setError('Failed to start voice recording. Please try text input instead.');
+            setShowTextInput(true);
+        }
+    }
+};
+
+// CORRECTED stopRecording function
+const stopRecording = () => {
+    setIsRecording(false);
+    try {
+        if (speechRecognitionRef.current) {
+            speechRecognitionRef.current.stop();
+        }
+    } catch (error) {
+        console.error('Error stopping speech recognition:', error);
+    }
+};
+
+
+const retryStartRecording = () => {
+    if (!userCanSpeak || aiSpeaking) return;
+    
+    setCurrentTranscript('');
+    setIsRecording(true);
+    setError(null);
+    
+    try {
+        if (speechRecognitionRef.current && speechReady) {
+            speechRecognitionRef.current.start();
+        }
+    } catch (error) {
+        console.error('Retry failed:', error);
+        setIsRecording(false);
+        setError('Voice recording failed. Please use text input instead.');
+        setShowTextInput(true);
+    }
+};
+
+// Enhanced startRecording function
+// const startRecording = async () => {
+//     if (!userCanSpeak || aiSpeaking) return;
+
+//     // Check microphone permissions first
+//     try {
+//         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+//         stream.getTracks().forEach(track => track.stop()); // Stop the test stream
+//     } catch (error) {
+//         console.error('Microphone access denied:', error);
+//         setError('Microphone access required for voice recording. Please allow microphone permissions or use text input.');
+//         setShowTextInput(true);
+//         return;
+//     }
+
+//     setCurrentTranscript('');
+//     setIsRecording(true);
+//     setError(null);
+//     setSpeechRetryCount(0);
+    
+//     try {
+//         if (speechRecognitionRef.current && speechReady) {
+//             speechRecognitionRef.current.start();
+//         } else {
+//             throw new Error('Speech recognition not ready');
+//         }
+//     } catch (error) {
+//         console.error('Failed to start speech recognition:', error);
+//         setIsRecording(false);
+        
+//         if (error.name === 'InvalidStateError') {
+//             // Recognition is already running, stop it first
+//             try {
+//                 speechRecognitionRef.current.stop();
+//                 setTimeout(() => {
+//                     startRecording();
+//                 }, 1000);
+//             } catch (e) {
+//                 setError('Speech recognition conflict. Please use text input instead.');
+//                 setShowTextInput(true);
+//             }
+//         } else {
+//             setError('Failed to start voice recording. Please try text input instead.');
+//             setShowTextInput(true);
+//         }
+//     }
+// };
+
+// // Enhanced stopRecording function
+// const stopRecording = () => {
+//     setIsRecording(false);
+//     try {
+//         if (speechRecognitionRef.current) {
+//             speechRecognitionRef.current.stop();
+//         }
+//     } catch (error) {
+//         console.error('Error stopping speech recognition:', error);
+//     }
+//     setSpeechRetryCount(0);
+// };
+
+// Add connection quality check
+const checkConnectionQuality = async () => {
+    try {
+        const start = Date.now();
+        await fetch('https://www.google.com/favicon.ico', { 
+            mode: 'no-cors',
+            cache: 'no-cache'
+        });
+        const latency = Date.now() - start;
+        
+        if (latency > 3000) {
+            setError('Slow internet connection detected. Consider using text input for better reliability.');
+        }
+    } catch (error) {
+        setError('Network connectivity issues detected. Please check your internet connection.');
+    }
+};
+
+// Call this when starting the interview
+useEffect(() => {
+    if (interviewStarted) {
+        checkConnectionQuality();
+    }
+}, [interviewStarted]);
+    
 
     // Auto-scroll conversation
     useEffect(() => {
@@ -194,10 +346,10 @@ const MockInterviews = () => {
             webcamStream.getTracks().forEach(track => track.stop());
             setWebcamStream(null);
         }
-        if (currentAudio) {
-            currentAudio.pause();
-            currentAudio.currentTime = 0;
-        }
+            if (currentAudio) {
+                currentAudio.pause();
+                currentAudio.currentTime = 0;
+            }
         if (speechRecognitionRef.current && speechRecognitionRef.current.abort) {
             speechRecognitionRef.current.abort();
         }
@@ -349,34 +501,34 @@ const MockInterviews = () => {
     };
 
     // Start voice recording
-    const startRecording = () => {
-        if (!userCanSpeak || aiSpeaking) {
-            return;
-        }
+    // const startRecording = () => {
+    //     if (!userCanSpeak || aiSpeaking) {
+    //         return;
+    //     }
 
-        setCurrentTranscript('');
-        setIsRecording(true);
-        setError(null); // Clear any previous errors
+    //     setCurrentTranscript('');
+    //     setIsRecording(true);
+    //     setError(null); // Clear any previous errors
         
-        try {
-            if (speechRecognitionRef.current) {
-                speechRecognitionRef.current.start();
-            }
-        } catch (error) {
-            console.error('Failed to start speech recognition:', error);
-            setIsRecording(false);
-            setError('Failed to start voice recording. Please try the text input option instead.');
-            setShowTextInput(true);
-        }
-    };
+    //     try {
+    //         if (speechRecognitionRef.current) {
+    //             speechRecognitionRef.current.start();
+    //         }
+    //     } catch (error) {
+    //         console.error('Failed to start speech recognition:', error);
+    //         setIsRecording(false);
+    //         setError('Failed to start voice recording. Please try the text input option instead.');
+    //         setShowTextInput(true);
+    //     }
+    // };
 
     // Stop voice recording
-    const stopRecording = () => {
-        setIsRecording(false);
-        if (speechRecognitionRef.current) {
-            speechRecognitionRef.current.stop();
-        }
-    };
+    // const stopRecording = () => {
+    //     setIsRecording(false);
+    //     if (speechRecognitionRef.current) {
+    //         speechRecognitionRef.current.stop();
+    //     }
+    // };
 
     // Handle text input submission
     const handleTextSubmit = () => {
@@ -564,6 +716,12 @@ const MockInterviews = () => {
 
     const currentQuestion = mockInterviewQuestions[currentQuestionIndex];
 
+    useEffect(() => {
+        if (videoRef.current && webcamStream) {
+            videoRef.current.srcObject = webcamStream;
+        }
+    }, [webcamStream]);
+
     return (
         <div className="voice-interview-container">
             <div className="interview-header">
@@ -647,6 +805,8 @@ const MockInterviews = () => {
                                         muted
                                         playsInline
                                         className="webcam-feed"
+                                        width={320}
+                                        height={240}
                                     />
                                     <div className="video-label">You</div>
                                     {isRecording && (
