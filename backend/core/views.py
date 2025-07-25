@@ -1514,147 +1514,187 @@ class DiscussionPostViewSet(viewsets.ModelViewSet):
 
 
 class AIChatbotView(APIView):
-    """
-    AI Chatbot endpoint that uses Gemini to answer user questions with platform context
-    """
-    permission_classes = [AllowAny]  # Allow both authenticated and anonymous users
+    """API view for AI chatbot interactions"""
     
     def post(self, request, *args, **kwargs):
-        user_message = request.data.get('message', '').strip()
-        user_id = request.data.get('user_id')  # Optional user context
+        message = request.data.get('message', '').strip()
+        user_id = request.data.get('user_id')
         
-        if not user_message:
-            return Response({
-                'error': 'Message is required'
-            }, status=status.HTTP_400_BAD_REQUEST)
+        if not message:
+            return Response(
+                {"error": "Message is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
         # Check if Gemini API is available
         gemini_api_key = os.environ.get('GEMINI_API_KEY')
-        
         if not gemini_api_key:
-            return Response({
-                'response': "I'm currently unavailable. Please try again later or contact support.",
-                'error': 'AI service not configured'
-            }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            return Response(
+                {"error": "AI service is currently unavailable"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
         
         try:
-            return self._generate_response_with_gemini(user_message, user_id)
-        except Exception as e:
-            print(f"Gemini API error in chatbot: {e}")
+            response_text = self._generate_response_with_gemini(message, user_id)
             return Response({
-                'response': "I'm having trouble processing your request right now. Please try again in a moment.",
-                'error': 'AI service temporarily unavailable'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                "response": response_text,
+                "timestamp": timezone.now().isoformat()
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            print(f"Error generating AI response: {e}")
+            return Response(
+                {"error": "Failed to generate response. Please try again."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
     
-    def _generate_response_with_gemini(self, user_message, user_id=None):
-        """Generate AI response using Gemini with platform context"""
+    def _generate_response_with_gemini(self, message, user_id=None):
+        """Generate response using Gemini AI"""
         genai.configure(api_key=os.environ.get('GEMINI_API_KEY'))
         model = genai.GenerativeModel('gemini-2.0-flash')
         
-        # Platform context
+        # Build context
         platform_context = self._get_platform_context()
+        user_context = self._get_user_context(user_id) if user_id else ""
         
-        # User context (if available)
-        user_context = ""
-        if user_id:
-            user_context = self._get_user_context(user_id)
-        
-        # Create comprehensive prompt
-        prompt = f"""
-        You are an AI assistant for "Connect & Conquer", a comprehensive career preparation platform. 
-        
-        PLATFORM CONTEXT:
-        {platform_context}
-        
-        USER CONTEXT:
-        {user_context}
-        
-        USER QUESTION: {user_message}
-        
-        INSTRUCTIONS:
-        - Provide helpful, accurate, and relevant answers about the platform and career preparation
-        - Use the platform context to give specific guidance about available features
-        - If the user asks about features not mentioned in the context, acknowledge that and suggest they explore the platform
-        - Be friendly, professional, and encouraging
-        - Keep responses concise but informative (aim for 2-4 sentences)
-        - If asked about technical issues, guide them to relevant sections or suggest contacting support
-        - Always relate your answers back to career preparation and professional development when possible
-        
-        Respond as the platform's AI assistant:
-        """
+        prompt = f"""You are an AI assistant for Connect & Conquer, a comprehensive career preparation platform. 
+
+Platform Context:
+{platform_context}
+
+{user_context}
+
+User Question: {message}
+
+Please provide a helpful, accurate, and engaging response. Keep it conversational but informative. If the question is about platform features, explain them clearly. If it's about career advice, provide actionable guidance.
+"""
         
         response = model.generate_content(prompt)
-        ai_response = response.text
-        
-        return Response({
-            'response': ai_response,
-            'timestamp': timezone.now().isoformat()
-        }, status=status.HTTP_200_OK)
+        return response.text
     
     def _get_platform_context(self):
-        """Generate comprehensive platform context for the AI"""
+        """Get context about the platform's features"""
         return """
-        Connect & Conquer is a career preparation platform with the following features:
-        
-        1. PERSONALIZED PREPARATION PLANS:
-        - AI-generated study plans based on target roles or job descriptions
-        - Tracks progress with topics, skills, and time estimates
-        - Adaptive learning paths for different career goals
-        
-        2. MOCK INTERVIEWS:
-        - AI-generated interview questions based on job descriptions and companies
-        - Text-to-speech functionality for realistic practice
-        - Detailed answer evaluation and feedback
-        - Performance scoring and improvement suggestions
-        
-        3. RESUME OPTIMIZATION:
-        - ATS compatibility analysis
-        - Keyword matching against job descriptions
-        - Detailed improvement suggestions
-        - Formatting and structure recommendations
-        
-        4. DISCUSSION FORUMS:
-        - Real-time chat functionality
-        - Category-based discussions (Technical, Behavioral, Company-specific, etc.)
-        - Community-driven knowledge sharing
-        - Topic-based conversation threads
-        
-        5. COMPANY & JOB INFORMATION:
-        - Company drive listings and details
-        - Job search integration
-        - Industry-specific preparation guidance
-        
-        6. LEARNING RESOURCES:
-        - Curated educational content
-        - Skill-based learning materials
-        - Progress tracking and achievements
-        
-        The platform is designed to provide end-to-end career preparation support, from skill development to interview success.
-        """
+Connect & Conquer is a career preparation platform with these key features:
+- AI-Powered Preparation Plans: Personalized study plans based on academic background and target roles
+- Mock Interviews: Voice-based AI interviews with real-time feedback and evaluation
+- Resume/ATS Checker: AI-powered resume analysis and optimization suggestions
+- Company Job Listings: Browse and search job opportunities with direct application links
+- Discussion Forums: Connect with peers and discuss career topics
+- Profile Management: Track progress and manage personal information
+
+The platform uses advanced AI (Gemini) to provide personalized recommendations and feedback.
+"""
     
     def _get_user_context(self, user_id):
         """Get user-specific context if available"""
         try:
-            from django.contrib.auth.models import User
+            if not user_id:
+                return ""
+            
             user = User.objects.get(id=user_id)
             
-            # Get user's recent activity
-            plans_count = UserPreparationPlan.objects.filter(user=user, is_active=True).count()
+            # Get user's active preparation plans
+            active_plans = UserPreparationPlan.objects.filter(
+                user=user, 
+                is_active=True
+            ).values('plan_name', 'preferred_role', 'progress_percentage')
             
-            context = f"""
-            User Information:
-            - Username: {user.username}
-            - Active preparation plans: {plans_count}
-            """
+            user_info = f"\nUser Context for {user.first_name or user.username}:\n"
             
-            # Add recent activity if available
-            recent_plan = UserPreparationPlan.objects.filter(user=user, is_active=True).first()
-            if recent_plan:
-                context += f"\n- Current focus: {recent_plan.preferred_role or 'General career preparation'}"
-                context += f"\n- Progress: {recent_plan.progress_percentage:.1f}% complete"
+            if active_plans:
+                user_info += "Active Preparation Plans:\n"
+                for plan in active_plans:
+                    user_info += f"- {plan['plan_name']}: {plan['progress_percentage']}% complete\n"
+                    if plan['preferred_role']:
+                        user_info += f"  Target Role: {plan['preferred_role']}\n"
             
-            return context
-            
+            return user_info
+        except Exception:
+            return ""
+
+
+class AITopicExplainerView(APIView):
+    """API view for generating AI explanations of specific topics"""
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request, *args, **kwargs):
+        topic_name = request.data.get('topic_name', '').strip()
+        topic_description = request.data.get('topic_description', '').strip()
+        skill_context = request.data.get('skill_context', '').strip()
+        user_level = request.data.get('user_level', 'intermediate').strip()
+        
+        if not topic_name:
+            return Response(
+                {"error": "Topic name is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if Gemini API is available
+        gemini_api_key = os.environ.get('GEMINI_API_KEY')
+        if not gemini_api_key:
+            return Response(
+                {"error": "AI service is currently unavailable"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+        
+        try:
+            explanation = self._generate_topic_explanation(
+                topic_name, topic_description, skill_context, user_level
+            )
+            return Response({
+                "explanation": explanation,
+                "topic_name": topic_name,
+                "timestamp": timezone.now().isoformat()
+            }, status=status.HTTP_200_OK)
         except Exception as e:
-            print(f"Error getting user context: {e}")
-            return "User context not available"
+            print(f"Error generating topic explanation: {e}")
+            return Response(
+                {"error": "Failed to generate explanation. Please try again."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def _generate_topic_explanation(self, topic_name, topic_description, skill_context, user_level):
+        """Generate detailed topic explanation using Gemini AI"""
+        genai.configure(api_key=os.environ.get('GEMINI_API_KEY'))
+        model = genai.GenerativeModel('gemini-2.0-flash')
+        
+        prompt = f"""You are an expert technical educator helping someone learn about: {topic_name}
+
+Topic Details:
+- Topic: {topic_name}
+- Description: {topic_description}
+- Skill Area: {skill_context}
+- User Level: {user_level}
+
+Please provide a comprehensive yet accessible explanation that includes:
+
+1. **What is {topic_name}?**
+   - Clear definition and core concepts
+   - Why it's important in {skill_context}
+
+2. **Key Concepts & Components**
+   - Break down the main ideas
+   - Explain technical terms simply
+
+3. **Practical Examples**
+   - Real-world applications
+   - Code examples if applicable (use common languages like Python, JavaScript, Java)
+
+4. **Learning Approach**
+   - Step-by-step learning path
+   - Prerequisites (if any)
+   - Recommended practice exercises
+
+5. **Common Pitfalls & Tips**
+   - What beginners often struggle with
+   - Best practices and pro tips
+
+6. **Next Steps**
+   - What to learn after mastering this topic
+   - How it connects to other concepts
+
+Format your response in clear sections with headers. Use examples and analogies to make complex concepts easier to understand. Aim for a {user_level} level explanation.
+"""
+        
+        response = model.generate_content(prompt)
+        return response.text

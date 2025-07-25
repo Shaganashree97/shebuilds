@@ -2,7 +2,7 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from rest_framework_nested import routers
 from rest_framework_simplejwt.views import TokenRefreshView
-from .views import CompanyDriveViewSet, PersonalizedPrepPlanView, GenerateMockInterviewView, EvaluateInterviewAnswersView, ResumeCheckerAPIView, DiscussionTopicViewSet, DiscussionPostViewSet, ForumCategoryViewSet, UserPreparationPlansView, PreparationPlanDetailView, UpdateTopicProgressView, DeletePreparationPlanView, UserRegistrationView, UserLoginView, UserLogoutView, UserProfileView, AIChatbotView
+from .views import CompanyDriveViewSet, PersonalizedPrepPlanView, GenerateMockInterviewView, EvaluateInterviewAnswersView, ResumeCheckerAPIView, DiscussionTopicViewSet, DiscussionPostViewSet, ForumCategoryViewSet, UserPreparationPlansView, PreparationPlanDetailView, UpdateTopicProgressView, DeletePreparationPlanView, UserRegistrationView, UserLoginView, UserLogoutView, UserProfileView, AIChatbotView, AITopicExplainerView
 
 router = DefaultRouter()
 router.register(r'companies', CompanyDriveViewSet) # This will create routes like /api/companies/
@@ -34,5 +34,6 @@ urlpatterns = [
     path('delete_plan/<int:plan_id>/', DeletePreparationPlanView.as_view(), name='delete-preparation-plan'),
     # AI Chatbot
     path('ai_chatbot/', AIChatbotView.as_view(), name='ai-chatbot'),
+    path('ai_topic_explainer/', AITopicExplainerView.as_view(), name='ai-topic-explainer'),
     path('', include(topics_router.urls)), # Include nested URLs
 ]
