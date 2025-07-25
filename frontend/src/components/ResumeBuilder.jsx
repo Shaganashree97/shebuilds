@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import './ResumeBuilder.css'; // Your CSS file
+import authService from '../services/authService';
 
 const ResumeBuilder = () => {
     const [resumeFile, setResumeFile] = useState(null);
@@ -7,8 +8,6 @@ const ResumeBuilder = () => {
     const [analysisResult, setAnalysisResult] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
-
-    const API_BASE_URL = 'http://localhost:8000/api'; // Your Django API base URL
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -22,28 +21,72 @@ const ResumeBuilder = () => {
             return;
         }
 
+        // Validate file type
+        const allowedTypes = ['pdf', 'docx', 'txt'];
+        const fileExtension = resumeFile.name.split('.').pop().toLowerCase();
+        if (!allowedTypes.includes(fileExtension)) {
+            setError("Please upload a PDF, DOCX, or TXT file only.");
+            setLoading(false);
+            return;
+        }
+
+        // Validate file size (10MB limit)
+        const maxSize = 10 * 1024 * 1024; // 10MB
+        if (resumeFile.size > maxSize) {
+            setError("File size too large. Please upload a file smaller than 10MB.");
+            setLoading(false);
+            return;
+        }
+
         // Use FormData to send file and text together
         const formData = new FormData();
         formData.append('resume_file', resumeFile);
         formData.append('job_description_text', jobDescriptionText);
 
         try {
-            const response = await fetch(`${API_BASE_URL}/resume_checker/`, {
+            const response = await authService.makeAuthenticatedRequest('/resume_checker/', {
                 method: 'POST',
-                // Don't set Content-Type header explicitly for FormData; browser does it automatically
                 body: formData,
             });
 
             if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+                let errorMessage = `HTTP error! status: ${response.status}`;
+                
+                try {
+                    const errorData = await response.json();
+                    if (errorData.error) {
+                        errorMessage = errorData.error;
+                    }
+                    // Handle specific error types
+                    if (response.status === 400) {
+                        if (errorMessage.includes('PDF')) {
+                            errorMessage += "\n\nTips for PDF issues:\n• Try re-saving your resume as a new PDF\n• Ensure the PDF is not password protected\n• Use 'Print to PDF' instead of scanning\n• Try converting to DOCX format instead";
+                        } else if (errorMessage.includes('DOCX')) {
+                            errorMessage += "\n\nTry saving your document in a newer DOCX format or convert to PDF.";
+                        } else if (errorMessage.includes('text file') || errorMessage.includes('encoding')) {
+                            errorMessage += "\n\nTry saving your text file with UTF-8 encoding or convert to PDF/DOCX.";
+                        }
+                    }
+                } catch (parseError) {
+                    console.error("Error parsing error response:", parseError);
+                    errorMessage = `Request failed with status ${response.status}. Please try again or contact support.`;
+                }
+                
+                throw new Error(errorMessage);
             }
 
             const data = await response.json();
             setAnalysisResult(data);
         } catch (e) {
             console.error("Failed to perform ATS check:", e);
-            setError(e.message || "Failed to perform ATS check. Please try again.");
+            let displayError = e.message || "Failed to perform ATS check. Please try again.";
+            
+            // Handle network errors
+            if (e.name === 'TypeError' && e.message.includes('fetch')) {
+                displayError = "Network error. Please check your connection and try again.";
+            }
+            
+            setError(displayError);
         } finally {
             setLoading(false);
         }

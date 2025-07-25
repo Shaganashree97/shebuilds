@@ -8,9 +8,14 @@ class AuthService {
 
   async makeRequest(url, options = {}) {
     const fullUrl = `${API_BASE_URL}${url}`;
-    const defaultHeaders = {
-      "Content-Type": "application/json",
-    };
+
+    const defaultHeaders = {};
+
+    // Only set Content-Type for non-FormData requests
+    // FormData requests need the browser to set Content-Type with boundary
+    if (!(options.body instanceof FormData)) {
+      defaultHeaders["Content-Type"] = "application/json";
+    }
 
     if (this.token) {
       defaultHeaders["Authorization"] = `Bearer ${this.token}`;

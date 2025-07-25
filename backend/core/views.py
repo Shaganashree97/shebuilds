@@ -30,6 +30,16 @@ import google.generativeai as genai
 # Import ElevenLabs SDK
 from elevenlabs import ElevenLabs
 
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from PyPDF2 import PdfReader
+from docx import Document
+import io
+import os
+
+
 
 # Authentication Views
 class UserRegistrationView(APIView):
@@ -890,9 +900,19 @@ class EvaluateInterviewAnswersView(APIView):
 
 
 class ResumeCheckerAPIView(APIView):
+    # Explicitly set parsers to handle multipart and form data
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    
     def post(self, request, *args, **kwargs):
-        job_description_text = request.data.get('job_description_text', '')
-        resume_file = request.FILES.get('resume_file')
+        # Handle both multipart form data and JSON
+        if request.content_type and 'multipart' in request.content_type:
+            # Multipart form data (file upload)
+            job_description_text = request.data.get('job_description_text', '')
+            resume_file = request.FILES.get('resume_file')
+        else:
+            # JSON data (if job description is sent as JSON)
+            job_description_text = request.data.get('job_description_text', '')
+            resume_file = request.FILES.get('resume_file') if hasattr(request, 'FILES') else None
 
         if not resume_file or not job_description_text:
             return Response(
@@ -927,30 +947,113 @@ class ResumeCheckerAPIView(APIView):
 
         try:
             if file_extension == 'pdf':
-                reader = PdfReader(io.BytesIO(resume_file.read()))
-                for page in reader.pages:
-                    resume_text += page.extract_text() or ''
+                try:
+                    # Reset file pointer to beginning
+                    resume_file.seek(0)
+                    
+                    # Read file content into BytesIO
+                    file_content = resume_file.read()
+                    if not file_content:
+                        return Response(
+                            {"error": "PDF file is empty."},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                    
+                    reader = PdfReader(io.BytesIO(file_content))
+                    
+                    # Check if PDF is encrypted
+                    if reader.is_encrypted:
+                        return Response(
+                            {"error": "PDF is password protected. Please upload an unencrypted PDF file."},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                    
+                    # Extract text from all pages
+                    for page_num, page in enumerate(reader.pages):
+                        try:
+                            page_text = page.extract_text()
+                            if page_text:
+                                resume_text += page_text + '\n'
+                        except Exception as page_error:
+                            print(f"Warning: Could not extract text from page {page_num + 1}: {page_error}")
+                            continue
+                    
+                except Exception as pdf_error:
+                    print(f"PDF parsing error: {pdf_error}")
+                    return Response(
+                        {"error": f"Could not parse PDF file. The file may be corrupted, encrypted, or not a valid PDF. Please try re-saving your resume as a new PDF or use a different format. Error details: {str(pdf_error)}"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                    
             elif file_extension == 'docx':
-                document = Document(io.BytesIO(resume_file.read()))
-                for para in document.paragraphs:
-                    resume_text += para.text + '\n'
+                try:
+                    resume_file.seek(0)
+                    file_content = resume_file.read()
+                    if not file_content:
+                        return Response(
+                            {"error": "DOCX file is empty."},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                    
+                    document = Document(io.BytesIO(file_content))
+                    for para in document.paragraphs:
+                        resume_text += para.text + '\n'
+                except Exception as docx_error:
+                    print(f"DOCX parsing error: {docx_error}")
+                    return Response(
+                        {"error": f"Could not parse DOCX file. The file may be corrupted or not a valid DOCX file. Error details: {str(docx_error)}"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                    
             elif file_extension == 'txt':
-                resume_text = resume_file.read().decode('utf-8')
+                try:
+                    resume_file.seek(0)
+                    file_content = resume_file.read()
+                    
+                    if not file_content:
+                        return Response(
+                            {"error": "Text file is empty."},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                    
+                    # Try different encodings if UTF-8 fails
+                    encodings_to_try = ['utf-8', 'utf-16', 'latin-1', 'cp1252', 'iso-8859-1']
+                    for encoding in encodings_to_try:
+                        try:
+                            resume_text = file_content.decode(encoding)
+                            break
+                        except UnicodeDecodeError:
+                            continue
+                    else:
+                        # If all encodings fail
+                        return Response(
+                            {"error": "Could not decode text file. Please ensure the file is saved in UTF-8 encoding or try converting to PDF/DOCX."},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                        
+                except Exception as txt_error:
+                    print(f"TXT parsing error: {txt_error}")
+                    return Response(
+                        {"error": f"Could not parse text file. Error details: {str(txt_error)}"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
             else:
                 return Response(
                     {"error": "Unsupported file format. Please upload a PDF, DOCX, or TXT file."},
                     status=status.HTTP_400_BAD_REQUEST
                 )
+                
         except Exception as e:
-            print(f"Error processing resume file: {e}")
+            print(f"General error processing resume file: {e}")
             return Response(
-                {"error": "Could not process resume file. Please ensure it's a valid and readable PDF/DOCX/TXT file.", "details": str(e)},
+                {"error": f"Unexpected error processing resume file. Please try a different file or format. Error details: {str(e)}"},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        # Check if we extracted any text
         if not resume_text.strip():
             return Response(
-                {"error": "Could not extract readable text from the resume file. Please try a different file or format."},
+                {"error": "Could not extract readable text from the resume file. The file may be empty, corrupted, or contain only images/graphics. Please try a different file or ensure your resume contains selectable text."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
