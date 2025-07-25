@@ -145,7 +145,7 @@ class PrepPlanOutputSerializer(serializers.Serializer):
     time_estimation = serializers.JSONField() # Holds total weeks and breakdown
     sections = serializers.ListField(
         child=serializers.DictField(
-            child=serializers.DictField() # Expecting {'skill': '...', 'topics': [...]}
+            child=serializers.CharField(allow_blank=True, required=False)
         )
     )
 
@@ -170,7 +170,7 @@ class AnswerEvaluationInputSerializer(serializers.Serializer):
     job_description = serializers.CharField(max_length=5000)
     question_answers = serializers.ListField(
         child=serializers.DictField(
-            child=serializers.CharField()
+            child=serializers.CharField(allow_blank=True, required=False    )
         )
     )
 
