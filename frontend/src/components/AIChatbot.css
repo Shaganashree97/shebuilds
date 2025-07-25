@@ -151,6 +151,7 @@
 
 /* Messages */
 .chatbot-messages {
+    background-color: white;
     flex: 1;
     padding: 20px;
     overflow-y: auto;
@@ -208,6 +209,7 @@
     font-size: 14px;
     line-height: 1.4;
     word-wrap: break-word;
+    background-color: white;
 }
 
 .bot-message .message-bubble {
@@ -320,10 +322,11 @@
     display: flex;
     gap: 12px;
     align-items: center;
-    background: white;
+    background: white !important;
 }
 
 .chatbot-input input {
+    background-color: white !important;
     flex: 1;
     border: 1px solid #e9ecef;
     border-radius: 20px;

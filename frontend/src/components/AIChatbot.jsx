@@ -62,11 +62,9 @@ const AIChatbot = () => {
                 requestBody.user_id = currentUser.user_id;
             }
 
-            const response = await fetch(`${API_BASE_URL}/ai_chatbot/`, {
+            // Use the abstracted API service to send the request with token
+            const response = await authService.makeAuthenticatedRequest('/ai_chatbot/', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
                 body: JSON.stringify(requestBody)
             });
 
@@ -228,6 +226,8 @@ const AIChatbot = () => {
                     {/* Input */}
                     <form className="chatbot-input" onSubmit={handleSendMessage}>
                         <input
+                            style={{ color: 'black' }}
+                            
                             ref={inputRef}
                             type="text"
                             value={inputMessage}

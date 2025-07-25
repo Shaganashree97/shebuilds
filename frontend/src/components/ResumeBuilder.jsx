@@ -53,7 +53,7 @@ const ResumeBuilder = () => {
                 let errorMessage = `HTTP error! status: ${response.status}`;
                 
                 try {
-                    const errorData = await response.json();
+                const errorData = await response.json();
                     if (errorData.error) {
                         errorMessage = errorData.error;
                     }
