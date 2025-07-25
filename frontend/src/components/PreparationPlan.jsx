@@ -674,7 +674,7 @@ const PreparationPlan = () => {
                                     <div className="topic-context">
                                         <strong>Skill Area:</strong> {currentAiTopic?.skillContext}
                                     </div>
-                                    <div className="explanation-content">
+                                    <div className="explanation-content" style={{textAlign:"left"}}>
                                         <ReactMarkdown>{aiExplanation}</ReactMarkdown>
                                     </div>
                                 </div>
