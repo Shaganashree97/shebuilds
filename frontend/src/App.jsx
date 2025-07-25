@@ -77,7 +77,7 @@ const MainNavbar = ({ currentUser, onLogout }) => {
 };
 
 // Main app content for authenticated users
-const AuthenticatedApp = () => {
+const AuthenticatedApp = ({ onLogout }) => {
   const [currentUser, setCurrentUser] = useState(null);
   const navigate = useNavigate();
 
@@ -89,10 +89,13 @@ const AuthenticatedApp = () => {
   const handleLogout = async () => {
     try {
       await authService.logout();
-      navigate('/auth');
+      console.log("navigating to auth")
+      // Call the parent's logout handler to update authentication state
+      onLogout();
     } catch (error) {
       console.error('Logout failed:', error);
-      navigate('/auth');
+      // Still call the parent's logout handler even if API call fails
+      onLogout();
     }
   };
 
@@ -152,8 +155,20 @@ function App() {
     checkAuthStatus();
   }, []);
 
+  // Monitor authentication changes and ensure proper navigation
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      // When user becomes unauthenticated, they should be redirected to /auth
+      // This will be handled by the Router logic below
+    }
+  }, [isAuthenticated, authLoading]);
+
   const handleAuthSuccess = (user) => {
     setIsAuthenticated(true);
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
   };
 
   if (authLoading) {
@@ -184,7 +199,7 @@ function App() {
             path="/*" 
             element={
               isAuthenticated ? 
-                <AuthenticatedApp /> : 
+                <AuthenticatedApp onLogout={handleLogout} /> : 
                 <Navigate to="/auth" replace />
             } 
           />

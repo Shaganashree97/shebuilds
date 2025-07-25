@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import './CompanyList.css'; // Will create this CSS file
 
 const CompanyList = () => {
@@ -8,6 +9,7 @@ const CompanyList = () => {
     const [error, setError] = useState(null);
     const [currentPage, setCurrentPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
+    const navigate = useNavigate();
 
     // IMPORTANT: Ensure this matches your Django backend URL
     const API_BASE_URL = 'http://localhost:8000/api';
@@ -70,6 +72,70 @@ const CompanyList = () => {
         if (days > 0) return `${days} day${days > 1 ? 's' : ''} ago`;
         if (hours > 0) return `${hours} hour${hours > 1 ? 's' : ''} ago`;
         return 'Recently posted';
+    };
+
+    const prepareForRole = (jobData) => {
+        // Create a comprehensive but concise job description from the job data
+        let jobDescription = `Job Title: ${jobData.job_title}
+Company: ${jobData.employer_name}
+Location: ${jobData.job_location}
+Employment Type: ${jobData.job_employment_type}`;
+
+        if (jobData.job_salary) {
+            jobDescription += `\nSalary: ${jobData.job_salary}`;
+        }
+
+        if (jobData.job_is_remote) {
+            jobDescription += `\nRemote Work: Available`;
+        }
+
+        // Add job description (truncated if too long)
+        const description = jobData.job_description || 'No detailed description available.';
+        const truncatedDescription = description.length > 800 ? description.substring(0, 800) + '...' : description;
+        jobDescription += `\n\nJob Description:\n${truncatedDescription}`;
+
+        // Add highlights if available (limit to top 5)
+        if (jobData.job_highlights && jobData.job_highlights.length > 0) {
+            jobDescription += `\n\nKey Requirements/Highlights:`;
+            jobData.job_highlights.slice(0, 5).forEach(highlight => {
+                if (jobDescription.length < 1800) { // Leave room for remaining content
+                    jobDescription += `\n• ${highlight}`;
+                }
+            });
+        }
+
+        // Add required skills if available (limit to top 8)
+        if (jobData.job_required_skills && jobData.job_required_skills.length > 0) {
+            jobDescription += `\n\nRequired Skills:`;
+            jobData.job_required_skills.slice(0, 8).forEach(skill => {
+                if (jobDescription.length < 1900) { // Leave room for final details
+                    jobDescription += `\n• ${skill}`;
+                }
+            });
+        }
+
+        // Add posting info if there's room
+        if (jobDescription.length < 1950) {
+            jobDescription += `\n\nPosted: ${formatTimeAgo(jobData.job_posted_at_timestamp)}`;
+        }
+
+        // Ensure we don't exceed 2000 characters
+        if (jobDescription.length > 2000) {
+            jobDescription = jobDescription.substring(0, 1997) + '...';
+        }
+
+        // Navigate to preparation plan with job data
+        navigate('/preparation', {
+            state: {
+                prefillData: {
+                    jobDescription: jobDescription,
+                    companyName: jobData.employer_name,
+                    jobTitle: jobData.job_title,
+                    jobLocation: jobData.job_location,
+                    inputType: 'job_description' // Set input type to job description
+                }
+            }
+        });
     };
 
     const filteredCompanies = companies.filter(company =>
@@ -207,6 +273,13 @@ const CompanyList = () => {
                                     <span>via {company.job_publisher}</span>
                                 </div>
                                 <div className="action-buttons">
+                                    <button
+                                        onClick={() => prepareForRole(company)}
+                                        className="prepare-btn"
+                                        title="Create a personalized preparation plan for this role"
+                                    >
+                                        🎯 Prepare for this Role
+                                    </button>
                                     {company.employer_website && (
                                         <a
                                             href={company.employer_website}
