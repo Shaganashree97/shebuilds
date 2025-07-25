@@ -139,6 +139,14 @@
     border: 1px solid #f5c6cb;
     border-radius: 12px;
     backdrop-filter: blur(10px);
+    white-space: pre-line;
+    line-height: 1.5;
+    font-size: 0.95rem;
+}
+
+.error-message strong {
+    font-weight: 600;
+    color: #721c24;
 }
 
 /* Analysis Results */
