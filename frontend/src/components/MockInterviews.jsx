@@ -325,6 +325,7 @@ useEffect(() => {
 
     // Setup webcam
     const setupWebcam = async () => {
+        return;
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ 
                 video: { width: 640, height: 480 }, 

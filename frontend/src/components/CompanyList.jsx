@@ -26,7 +26,7 @@ const CompanyList = () => {
         const options = {
             method: 'GET',
             headers: {
-                'x-rapidapi-key': '5c4dcd233dmsh9aa5bcef8f6dc4fp13d3c9jsna22055c28751',
+                'x-rapidapi-key': '7fcc327d34mshefc76dfd1253156p15aea0jsn525b1dc6be27',
                 'x-rapidapi-host': 'jsearch.p.rapidapi.com'
             }
         };
